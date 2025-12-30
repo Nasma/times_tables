@@ -2,6 +2,7 @@ use crate::problem::Problem;
 use crate::spaced_rep::SpacedRepetition;
 use crate::storage;
 use eframe::egui;
+use std::time::Instant;
 
 #[derive(PartialEq)]
 enum FeedbackState {
@@ -13,6 +14,7 @@ pub struct TimesTablesApp {
     spaced_rep: SpacedRepetition,
     current_problem: Option<Problem>,
     last_problem: Option<Problem>,
+    problem_start: Instant,
     answer_input: String,
     feedback: FeedbackState,
     streak: u32,
@@ -30,6 +32,7 @@ impl Default for TimesTablesApp {
             spaced_rep,
             current_problem,
             last_problem: None,
+            problem_start: Instant::now(),
             answer_input: String::new(),
             feedback: FeedbackState::None,
             streak: 0,
@@ -58,10 +61,11 @@ impl TimesTablesApp {
             }
         };
 
+        let response_secs = self.problem_start.elapsed().as_secs_f64();
         let correct_answer = problem.answer();
         let is_correct = user_answer == correct_answer;
 
-        self.spaced_rep.record_answer(&problem, is_correct);
+        self.spaced_rep.record_answer(&problem, is_correct, response_secs);
 
         if is_correct {
             self.streak += 1;
@@ -93,6 +97,7 @@ impl TimesTablesApp {
         if self.current_problem.is_none() && self.keep_practicing {
             self.current_problem = self.spaced_rep.get_extra_practice_problem(self.last_problem.as_ref());
         }
+        self.problem_start = Instant::now();
         self.answer_input.clear();
         self.feedback = FeedbackState::None;
     }
@@ -188,6 +193,7 @@ impl eframe::App for TimesTablesApp {
                         {
                             self.keep_practicing = true;
                             self.current_problem = self.spaced_rep.get_extra_practice_problem(self.last_problem.as_ref());
+                            self.problem_start = Instant::now();
                         }
                     }
                 }

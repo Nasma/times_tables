@@ -63,7 +63,7 @@ impl ProblemStats {
         self.consecutive_correct >= 3 && self.ease_factor >= 2.0
     }
 
-    pub fn record_answer(&mut self, correct: bool) {
+    pub fn record_answer(&mut self, correct: bool, response_secs: f64) {
         if correct {
             self.times_correct += 1;
             self.consecutive_correct += 1;
@@ -76,7 +76,16 @@ impl ProblemStats {
                 self.interval_days *= self.ease_factor;
             }
 
-            self.ease_factor += 0.1;
+            // Adjust ease factor based on response time
+            // Fast (< 3s): +0.15, Normal (3-8s): +0.1, Slow (> 8s): +0.05
+            let ease_bonus = if response_secs < 3.0 {
+                0.15
+            } else if response_secs <= 8.0 {
+                0.1
+            } else {
+                0.05
+            };
+            self.ease_factor += ease_bonus;
             if self.ease_factor > 3.0 {
                 self.ease_factor = 3.0;
             }
