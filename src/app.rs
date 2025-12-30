@@ -20,14 +20,16 @@ pub struct TimesTablesApp {
     streak: u32,
     session_correct: u32,
     session_wrong: u32,
-    keep_practicing: bool,
     confirm_reset: bool,
 }
 
 impl Default for TimesTablesApp {
     fn default() -> Self {
         let spaced_rep = storage::load_or_new();
-        let current_problem = spaced_rep.get_next_problem(None);
+        let mut current_problem = spaced_rep.get_next_problem(None);
+        if current_problem.is_none() {
+            current_problem = spaced_rep.get_extra_practice_problem(None);
+        }
 
         Self {
             spaced_rep,
@@ -39,7 +41,6 @@ impl Default for TimesTablesApp {
             streak: 0,
             session_correct: 0,
             session_wrong: 0,
-            keep_practicing: false,
             confirm_reset: false,
         }
     }
@@ -96,7 +97,7 @@ impl TimesTablesApp {
     fn next_problem(&mut self) {
         self.last_problem = self.current_problem;
         self.current_problem = self.spaced_rep.get_next_problem(self.last_problem.as_ref());
-        if self.current_problem.is_none() && self.keep_practicing {
+        if self.current_problem.is_none() {
             self.current_problem = self.spaced_rep.get_extra_practice_problem(self.last_problem.as_ref());
         }
         self.problem_start = Instant::now();
@@ -114,7 +115,6 @@ impl TimesTablesApp {
         self.streak = 0;
         self.session_correct = 0;
         self.session_wrong = 0;
-        self.keep_practicing = false;
         self.confirm_reset = false;
         let _ = storage::save(&self.spaced_rep);
     }
@@ -195,23 +195,12 @@ impl eframe::App for TimesTablesApp {
                     }
                     None => {
                         ui.label(
-                            egui::RichText::new("All caught up!")
+                            egui::RichText::new("All mastered!")
                                 .size(32.0)
                                 .color(egui::Color32::from_rgb(50, 205, 50)),
                         );
                         ui.add_space(10.0);
-                        ui.label("No problems due for review right now.");
-                        ui.add_space(15.0);
-
-                        if ui
-                            .add_sized([200.0, 40.0], egui::Button::new("Keep practicing?"))
-                            .clicked()
-                            || ui.input(|i| i.key_pressed(egui::Key::Enter))
-                        {
-                            self.keep_practicing = true;
-                            self.current_problem = self.spaced_rep.get_extra_practice_problem(self.last_problem.as_ref());
-                            self.problem_start = Instant::now();
-                        }
+                        ui.label("Congratulations! You've mastered all times tables!");
                     }
                 }
             });
