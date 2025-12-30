@@ -21,6 +21,7 @@ pub struct TimesTablesApp {
     session_correct: u32,
     session_wrong: u32,
     keep_practicing: bool,
+    confirm_reset: bool,
 }
 
 impl Default for TimesTablesApp {
@@ -39,6 +40,7 @@ impl Default for TimesTablesApp {
             session_correct: 0,
             session_wrong: 0,
             keep_practicing: false,
+            confirm_reset: false,
         }
     }
 }
@@ -100,6 +102,21 @@ impl TimesTablesApp {
         self.problem_start = Instant::now();
         self.answer_input.clear();
         self.feedback = FeedbackState::None;
+    }
+
+    fn reset_progress(&mut self) {
+        self.spaced_rep = SpacedRepetition::new();
+        self.current_problem = self.spaced_rep.get_next_problem(None);
+        self.last_problem = None;
+        self.problem_start = Instant::now();
+        self.answer_input.clear();
+        self.feedback = FeedbackState::None;
+        self.streak = 0;
+        self.session_correct = 0;
+        self.session_wrong = 0;
+        self.keep_practicing = false;
+        self.confirm_reset = false;
+        let _ = storage::save(&self.spaced_rep);
     }
 }
 
@@ -242,6 +259,22 @@ impl eframe::App for TimesTablesApp {
                     self.spaced_rep.total_wrong()
                 ));
             });
+
+            ui.add_space(15.0);
+
+            if self.confirm_reset {
+                ui.horizontal(|ui| {
+                    ui.label("Reset all progress?");
+                    if ui.button("Yes, reset").clicked() {
+                        self.reset_progress();
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.confirm_reset = false;
+                    }
+                });
+            } else if ui.small_button("Reset progress").clicked() {
+                self.confirm_reset = true;
+            }
         });
     }
 }
