@@ -43,7 +43,7 @@ impl SpacedRepetition {
     fn is_problem_unlocked(&self, problem: &Problem) -> bool {
         let unlocked = self.unlocked_table_set();
         let (a, b) = problem.tables_required();
-        unlocked.contains(&a) && unlocked.contains(&b)
+        unlocked.contains(&a) || unlocked.contains(&b)
     }
 
     fn check_unlock_next_table(&mut self) {
