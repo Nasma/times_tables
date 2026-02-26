@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Times Tables Practice</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+  <!-- Auth view -->
+  <div id="auth-view" class="view">
+    <h1>Times Tables Practice</h1>
+    <div class="card">
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" autocomplete="username" autocapitalize="none" />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" autocomplete="current-password" />
+      </div>
+      <div class="auth-buttons">
+        <button id="login-btn" class="btn-primary">Log in</button>
+        <button id="register-btn" class="btn-secondary">Register</button>
+      </div>
+      <p id="auth-error" class="error-msg hidden"></p>
+    </div>
+  </div>
+
+  <!-- Practice view -->
+  <div id="practice-view" class="view hidden">
+    <h1>Times Tables Practice</h1>
+
+    <div class="card problem-card">
+      <div id="problem-text" class="problem-text">7 × 8 = ?</div>
+
+      <!-- Normal answer mode -->
+      <div id="normal-mode">
+        <input
+          type="number"
+          id="answer-input"
+          class="answer-input"
+          inputmode="numeric"
+          placeholder="?"
+          autocomplete="off"
+        />
+        <button id="submit-btn" class="btn-primary">Submit</button>
+      </div>
+
+      <!-- Correction mode -->
+      <div id="correction-mode" class="hidden">
+        <p id="incorrect-msg" class="error-msg"></p>
+        <input
+          type="number"
+          id="correction-input"
+          class="answer-input"
+          inputmode="numeric"
+          autocomplete="off"
+        />
+      </div>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="stats-bar">
+      <div class="stat">
+        <span class="stat-label">Streak</span>
+        <span id="streak" class="stat-value">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Mastered</span>
+        <span class="stat-value"><span id="mastered">0</span>/<span id="total">0</span></span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Due</span>
+        <span id="due" class="stat-value">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Session</span>
+        <span class="stat-value">
+          <span id="session-correct" class="correct-count">0</span>✓
+          <span id="session-wrong" class="wrong-count">0</span>✗
+        </span>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions">
+      <div id="reset-area">
+        <button id="reset-btn" class="btn-danger-outline">Reset progress</button>
+        <div id="reset-confirm" class="hidden confirm-row">
+          <span>Reset all progress?</span>
+          <button id="reset-yes" class="btn-danger">Yes, reset</button>
+          <button id="reset-cancel" class="btn-secondary">Cancel</button>
+        </div>
+      </div>
+      <button id="logout-btn" class="btn-ghost">Log out</button>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
