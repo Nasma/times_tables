@@ -4,16 +4,21 @@ app = "times-tables"
 
 [env]
   BASE_URL = "https://times-tables.fly.dev"
+  DATA_DIR  = "/data"
+
+[[mounts]]
+  source      = "data"
+  destination = "/data"
 
 [[services]]
   internal_port = 3000
-  protocol = "tcp"
+  protocol      = "tcp"
 
   [[services.ports]]
-    handlers = ["http"]
-    port = 80
+    handlers    = ["http"]
+    port        = 80
     force_https = true
 
   [[services.ports]]
     handlers = ["tls", "http"]
-    port = 443
+    port     = 443

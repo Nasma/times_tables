@@ -530,10 +530,14 @@ async fn find_or_create_google_user(
 // ── DB setup ──────────────────────────────────────────────────────────────────
 
 async fn get_db_pool() -> SqlitePool {
-    let dirs = ProjectDirs::from("com", "practice", "times_tables_server")
-        .expect("Could not determine data directory");
-    let data_dir = dirs.data_dir();
-    std::fs::create_dir_all(data_dir).expect("Could not create data directory");
+    let data_dir = if let Ok(dir) = std::env::var("DATA_DIR") {
+        std::path::PathBuf::from(dir)
+    } else {
+        let dirs = ProjectDirs::from("com", "practice", "times_tables_server")
+            .expect("Could not determine data directory");
+        dirs.data_dir().to_path_buf()
+    };
+    std::fs::create_dir_all(&data_dir).expect("Could not create data directory");
     let db_path = data_dir.join("db.sqlite");
 
     let opts = SqliteConnectOptions::new()
