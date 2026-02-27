@@ -123,57 +123,6 @@ impl TimesTablesApp {
 
 impl eframe::App for TimesTablesApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let grid_status = self.spaced_rep.grid_status();
-
-        egui::SidePanel::right("grid_panel")
-            .resizable(false)
-            .show(ctx, |ui| {
-                ui.add_space(10.0);
-                ui.label(egui::RichText::new("Progress").strong());
-                ui.add_space(8.0);
-
-                egui::Grid::new("progress_grid")
-                    .spacing(egui::Vec2::splat(2.0))
-                    .show(ui, |ui| {
-                        for row in 0..12u8 {
-                            for col in 0..12u8 {
-                                let color = match grid_status[(row * 12 + col) as usize] {
-                                    "mastered" => egui::Color32::from_rgb(37, 99, 235),
-                                    "working"  => egui::Color32::from_rgb(22, 163, 74),
-                                    _          => egui::Color32::from_rgb(209, 213, 219),
-                                };
-                                let (rect, resp) = ui.allocate_exact_size(
-                                    egui::Vec2::splat(16.0),
-                                    egui::Sense::hover(),
-                                );
-                                ui.painter().rect_filled(rect, 2.0, color);
-                                resp.on_hover_text(format!(
-                                    "{} × {} = {}",
-                                    row + 1, col + 1,
-                                    (row + 1) as u32 * (col + 1) as u32,
-                                ));
-                            }
-                            ui.end_row();
-                        }
-                    });
-
-                ui.add_space(10.0);
-                for (color, label) in [
-                    (egui::Color32::from_rgb(209, 213, 219), "Not started"),
-                    (egui::Color32::from_rgb(22, 163, 74),   "Learning"),
-                    (egui::Color32::from_rgb(37, 99, 235),   "Mastered"),
-                ] {
-                    ui.horizontal(|ui| {
-                        let (rect, _) = ui.allocate_exact_size(
-                            egui::Vec2::splat(10.0),
-                            egui::Sense::hover(),
-                        );
-                        ui.painter().rect_filled(rect, 2.0, color);
-                        ui.label(egui::RichText::new(label).small());
-                    });
-                }
-            });
-
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(20.0);
