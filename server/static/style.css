@@ -44,6 +44,83 @@ h1 {
   max-width: 420px;
 }
 
+#practice-view {
+  max-width: 720px;
+}
+
+/* Practice layout */
+.practice-layout {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.practice-left {
+  flex: 1;
+  min-width: 300px;
+}
+
+.practice-right {
+  flex-shrink: 0;
+}
+
+/* Progress grid */
+.grid-card {
+  padding: 1rem;
+}
+
+.grid-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.625rem;
+}
+
+.progress-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 3px;
+}
+
+.grid-cell {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+}
+
+.grid-cell.new      { background: #d1d5db; }
+.grid-cell.working  { background: #16a34a; }
+.grid-cell.mastered { background: #2563eb; }
+
+.grid-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.75rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.legend-dot.new      { background: #d1d5db; }
+.legend-dot.working  { background: #16a34a; }
+.legend-dot.mastered { background: #2563eb; }
+
 .hidden {
   display: none !important;
 }

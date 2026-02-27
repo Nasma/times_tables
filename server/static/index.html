@@ -37,70 +37,89 @@
   <!-- Practice view -->
   <div id="practice-view" class="view hidden">
     <h1>Times Tables Practice</h1>
+    <div class="practice-layout">
 
-    <div class="card problem-card">
-      <div id="problem-text" class="problem-text">7 × 8 = ?</div>
+      <!-- Left: problem + stats + actions -->
+      <div class="practice-left">
+        <div class="card problem-card">
+          <div id="problem-text" class="problem-text">7 × 8 = ?</div>
 
-      <!-- Normal answer mode -->
-      <div id="normal-mode">
-        <input
-          type="number"
-          id="answer-input"
-          class="answer-input"
-          inputmode="numeric"
-          placeholder="?"
-          autocomplete="off"
-        />
-        <button id="submit-btn" class="btn-primary">Submit</button>
-      </div>
+          <!-- Normal answer mode -->
+          <div id="normal-mode">
+            <input
+              type="number"
+              id="answer-input"
+              class="answer-input"
+              inputmode="numeric"
+              placeholder="?"
+              autocomplete="off"
+            />
+            <button id="submit-btn" class="btn-primary">Submit</button>
+          </div>
 
-      <!-- Correction mode -->
-      <div id="correction-mode" class="hidden">
-        <p id="incorrect-msg" class="error-msg"></p>
-        <input
-          type="number"
-          id="correction-input"
-          class="answer-input"
-          inputmode="numeric"
-          autocomplete="off"
-        />
-      </div>
-    </div>
+          <!-- Correction mode -->
+          <div id="correction-mode" class="hidden">
+            <p id="incorrect-msg" class="error-msg"></p>
+            <input
+              type="number"
+              id="correction-input"
+              class="answer-input"
+              inputmode="numeric"
+              autocomplete="off"
+            />
+          </div>
+        </div>
 
-    <!-- Stats bar -->
-    <div class="stats-bar">
-      <div class="stat">
-        <span class="stat-label">Streak</span>
-        <span id="streak" class="stat-value">0</span>
-      </div>
-      <div class="stat">
-        <span class="stat-label">Mastered</span>
-        <span class="stat-value"><span id="mastered">0</span>/<span id="total">0</span></span>
-      </div>
-      <div class="stat">
-        <span class="stat-label">Due</span>
-        <span id="due" class="stat-value">0</span>
-      </div>
-      <div class="stat">
-        <span class="stat-label">Session</span>
-        <span class="stat-value">
-          <span id="session-correct" class="correct-count">0</span>✓
-          <span id="session-wrong" class="wrong-count">0</span>✗
-        </span>
-      </div>
-    </div>
+        <!-- Stats bar -->
+        <div class="stats-bar">
+          <div class="stat">
+            <span class="stat-label">Streak</span>
+            <span id="streak" class="stat-value">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Mastered</span>
+            <span class="stat-value"><span id="mastered">0</span>/<span id="total">0</span></span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Due</span>
+            <span id="due" class="stat-value">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Session</span>
+            <span class="stat-value">
+              <span id="session-correct" class="correct-count">0</span>✓
+              <span id="session-wrong" class="wrong-count">0</span>✗
+            </span>
+          </div>
+        </div>
 
-    <!-- Actions -->
-    <div class="actions">
-      <div id="reset-area">
-        <button id="reset-btn" class="btn-danger-outline">Reset progress</button>
-        <div id="reset-confirm" class="hidden confirm-row">
-          <span>Reset all progress?</span>
-          <button id="reset-yes" class="btn-danger">Yes, reset</button>
-          <button id="reset-cancel" class="btn-secondary">Cancel</button>
+        <!-- Actions -->
+        <div class="actions">
+          <div id="reset-area">
+            <button id="reset-btn" class="btn-danger-outline">Reset progress</button>
+            <div id="reset-confirm" class="hidden confirm-row">
+              <span>Reset all progress?</span>
+              <button id="reset-yes" class="btn-danger">Yes, reset</button>
+              <button id="reset-cancel" class="btn-secondary">Cancel</button>
+            </div>
+          </div>
+          <button id="logout-btn" class="btn-ghost">Log out</button>
         </div>
       </div>
-      <button id="logout-btn" class="btn-ghost">Log out</button>
+
+      <!-- Right: progress grid -->
+      <div class="practice-right">
+        <div class="card grid-card">
+          <div class="grid-title">Progress</div>
+          <div id="progress-grid" class="progress-grid"></div>
+          <div class="grid-legend">
+            <span class="legend-item"><span class="legend-dot new"></span>Not started</span>
+            <span class="legend-item"><span class="legend-dot working"></span>Learning</span>
+            <span class="legend-item"><span class="legend-dot mastered"></span>Mastered</span>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 

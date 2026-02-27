@@ -52,6 +52,7 @@ struct StateResponse {
     mastered: usize,
     total: usize,
     due: usize,
+    grid: Vec<&'static str>,
 }
 
 #[derive(Deserialize)]
@@ -75,6 +76,7 @@ struct AnswerResponse {
     mastered: usize,
     total: usize,
     due: usize,
+    grid: Vec<&'static str>,
 }
 
 #[derive(Deserialize)]
@@ -318,6 +320,7 @@ async fn get_state(
         mastered: sr.mastered_count(),
         total: sr.unlocked_problems(),
         due: sr.due_count(),
+        grid: sr.grid_status(),
     }))
 }
 
@@ -347,6 +350,7 @@ async fn submit_answer(
         mastered: sr.mastered_count(),
         total: sr.unlocked_problems(),
         due: sr.due_count(),
+        grid: sr.grid_status(),
     }))
 }
 

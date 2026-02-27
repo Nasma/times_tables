@@ -46,6 +46,7 @@ const resetYes        = $('reset-yes');
 const resetCancel     = $('reset-cancel');
 const logoutBtn       = $('logout-btn');
 const googleAuth      = $('google-auth');
+const progressGrid    = $('progress-grid');
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -123,6 +124,18 @@ function updateStats() {
   sessionWrongEl.textContent = state.sessionWrong;
 }
 
+function renderGrid(grid) {
+  progressGrid.innerHTML = '';
+  grid.forEach((status, i) => {
+    const a = Math.floor(i / 12) + 1;
+    const b = (i % 12) + 1;
+    const cell = document.createElement('div');
+    cell.className = `grid-cell ${status}`;
+    cell.title = `${a} × ${b} = ${a * b}`;
+    progressGrid.appendChild(cell);
+  });
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 async function loadState() {
@@ -141,6 +154,7 @@ async function loadState() {
   state.total = data.total;
   state.due = data.due;
   updateStats();
+  renderGrid(data.grid);
   displayProblem(data.problem);
   showPractice();
 }
@@ -212,6 +226,7 @@ async function submitAnswer() {
   state.mastered = data.mastered;
   state.total = data.total;
   state.due = data.due;
+  renderGrid(data.grid);
 
   if (data.correct) {
     state.streak += 1;
