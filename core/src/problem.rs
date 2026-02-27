@@ -40,6 +40,12 @@ pub struct ProblemStats {
     pub times_correct: u32,
     pub times_wrong: u32,
     pub consecutive_correct: u32,
+    /// Achievement tier: 0=not started, 1=learning, 2=solid, 3=fast, 4=mastered. Never reverts.
+    #[serde(default)]
+    pub best_tier: u8,
+    /// Consecutive fast (< 3s) correct answers for the current streak.
+    #[serde(default)]
+    pub consecutive_fast_correct: u32,
 }
 
 impl ProblemStats {
@@ -52,6 +58,8 @@ impl ProblemStats {
             times_correct: 0,
             times_wrong: 0,
             consecutive_correct: 0,
+            best_tier: 0,
+            consecutive_fast_correct: 0,
         }
     }
 
@@ -64,6 +72,8 @@ impl ProblemStats {
     }
 
     pub fn record_answer(&mut self, correct: bool, response_secs: f64) {
+        let is_fast = response_secs < 3.0;
+
         if correct {
             self.times_correct += 1;
             let increment = if self.problem.a == 1 || self.problem.b == 1 {
@@ -85,7 +95,7 @@ impl ProblemStats {
 
             // Adjust ease factor based on response time
             // Fast (< 3s): +0.15, Normal (3-8s): +0.1, Slow (> 8s): +0.05
-            let ease_bonus = if response_secs < 3.0 {
+            let ease_bonus = if is_fast {
                 0.15
             } else if response_secs <= 8.0 {
                 0.1
@@ -96,6 +106,12 @@ impl ProblemStats {
             if self.ease_factor > 3.0 {
                 self.ease_factor = 3.0;
             }
+
+            if is_fast {
+                self.consecutive_fast_correct += 1;
+            } else {
+                self.consecutive_fast_correct = 0;
+            }
         } else {
             self.times_wrong += 1;
             self.consecutive_correct = 0;
@@ -104,10 +120,26 @@ impl ProblemStats {
             if self.ease_factor < 1.3 {
                 self.ease_factor = 1.3;
             }
+            self.consecutive_fast_correct = 0;
         }
 
         self.next_review = Utc::now()
             + chrono::Duration::seconds((self.interval_days * 86400.0) as i64);
+
+        // Advance achievement tier — never reverts.
+        // 1=learning, 2=solid, 3=fast, 4=mastered
+        if self.times_correct > 0 {
+            self.best_tier = self.best_tier.max(1);
+        }
+        if self.is_mastered() {
+            self.best_tier = self.best_tier.max(2);
+        }
+        if self.best_tier >= 2 && correct && is_fast {
+            self.best_tier = self.best_tier.max(3);
+        }
+        if self.consecutive_fast_correct >= 3 {
+            self.best_tier = self.best_tier.max(4);
+        }
     }
 }
 

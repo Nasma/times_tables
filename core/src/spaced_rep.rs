@@ -165,16 +165,18 @@ impl SpacedRepetition {
         TABLE_ORDER.get(self.unlocked_tables).copied()
     }
 
-    /// Returns a 144-element vec (a=1..12, b=1..12) with status of each cell.
+    /// Returns a 144-element vec (a=1..12, b=1..12) with the achievement tier of each cell.
     pub fn grid_status(&self) -> Vec<&'static str> {
         (1u8..=12)
             .flat_map(|a| {
                 (1u8..=12).map(move |b| {
                     let key = Problem::new(a, b).key();
-                    match self.stats.get(&key) {
-                        Some(s) if s.is_mastered() => "mastered",
-                        Some(s) if s.times_correct > 0 => "working",
-                        _ => "new",
+                    match self.stats.get(&key).map(|s| s.best_tier) {
+                        Some(4) => "mastered",
+                        Some(3) => "fast",
+                        Some(2) => "solid",
+                        Some(1) => "learning",
+                        _ => "not_started",
                     }
                 })
             })
