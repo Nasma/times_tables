@@ -60,7 +60,8 @@ impl ProblemStats {
     }
 
     pub fn is_mastered(&self) -> bool {
-        self.consecutive_correct >= 3 && self.ease_factor >= 2.0
+        let required = if self.problem.a == 1 || self.problem.b == 1 { 1 } else { 3 };
+        self.consecutive_correct >= required && self.ease_factor >= 2.0
     }
 
     pub fn record_answer(&mut self, correct: bool, response_secs: f64) {
