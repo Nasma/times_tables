@@ -45,6 +45,7 @@ const resetConfirm    = $('reset-confirm');
 const resetYes        = $('reset-yes');
 const resetCancel     = $('reset-cancel');
 const logoutBtn       = $('logout-btn');
+const googleAuth      = $('google-auth');
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -284,8 +285,26 @@ logoutBtn.addEventListener('click', async () => {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
+// Handle token/error passed back from OAuth redirect via URL hash
+let oauthError = null;
+const hash = window.location.hash;
+if (hash.startsWith('#token=')) {
+  localStorage.setItem('token', hash.slice('#token='.length));
+  history.replaceState(null, '', window.location.pathname);
+} else if (hash.startsWith('#auth_error=')) {
+  oauthError = decodeURIComponent(hash.slice('#auth_error='.length));
+  history.replaceState(null, '', window.location.pathname);
+}
+
+// Show Google button if server has OAuth credentials configured
+fetch('/api/config')
+  .then(r => r.json())
+  .then(cfg => { if (cfg.google_oauth) googleAuth.classList.remove('hidden'); })
+  .catch(() => {});
+
 if (getToken()) {
   loadState();
 } else {
   showAuth();
+  if (oauthError) setAuthError(oauthError);
 }

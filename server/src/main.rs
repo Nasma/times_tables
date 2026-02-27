@@ -3,9 +3,9 @@ use argon2::{
     Argon2,
 };
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{header, HeaderMap, StatusCode},
-    response::{Html, IntoResponse},
+    response::{Html, IntoResponse, Redirect},
     routing::{get, post},
     Json, Router,
 };
@@ -21,6 +21,10 @@ use tt_core::{problem::Problem, spaced_rep::SpacedRepetition};
 #[derive(Clone)]
 struct AppState {
     db: SqlitePool,
+    http: reqwest::Client,
+    google_client_id: Option<String>,
+    google_client_secret: Option<String>,
+    base_url: String,
 }
 
 // ── Request / Response types ──────────────────────────────────────────────────
@@ -71,6 +75,29 @@ struct AnswerResponse {
     mastered: usize,
     total: usize,
     due: usize,
+}
+
+#[derive(Deserialize)]
+struct OAuthCallbackParams {
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GoogleTokenResponse {
+    access_token: String,
+}
+
+#[derive(Deserialize)]
+struct GoogleUserInfo {
+    id: String,
+    email: String,
+}
+
+#[derive(Serialize)]
+struct ConfigResponse {
+    google_oauth: bool,
 }
 
 // ── Error helpers ─────────────────────────────────────────────────────────────
@@ -245,6 +272,10 @@ async fn login(
     let user_id: i64 = row.try_get("id").map_err(internal)?;
     let stored_hash: String = row.try_get("password_hash").map_err(internal)?;
 
+    if stored_hash.is_empty() {
+        return Err(app_err(StatusCode::UNAUTHORIZED, "This account uses Google sign-in"));
+    }
+
     let parsed =
         PasswordHash::new(&stored_hash).map_err(|e| internal(e))?;
     Argon2::default()
@@ -332,6 +363,170 @@ async fn reset_progress(
     Ok(StatusCode::OK)
 }
 
+async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigResponse> {
+    Json(ConfigResponse {
+        google_oauth: state.google_client_id.is_some(),
+    })
+}
+
+async fn google_auth_start(
+    State(state): State<Arc<AppState>>,
+) -> Result<Redirect, (StatusCode, String)> {
+    let client_id = state.google_client_id.as_ref().unwrap();
+    let redirect_uri = format!("{}/api/auth/google/callback", state.base_url);
+    let oauth_state = generate_token();
+    let created_at = Utc::now().to_rfc3339();
+
+    sqlx::query("INSERT INTO oauth_states (state, created_at) VALUES (?, ?)")
+        .bind(&oauth_state)
+        .bind(&created_at)
+        .execute(&state.db)
+        .await
+        .map_err(internal)?;
+
+    let url = reqwest::Url::parse_with_params(
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        &[
+            ("client_id", client_id.as_str()),
+            ("redirect_uri", redirect_uri.as_str()),
+            ("response_type", "code"),
+            ("scope", "openid email"),
+            ("state", oauth_state.as_str()),
+        ],
+    )
+    .map_err(internal)?;
+
+    Ok(Redirect::to(url.as_str()))
+}
+
+async fn google_auth_inner(
+    state: Arc<AppState>,
+    params: OAuthCallbackParams,
+) -> Result<String, String> {
+    if let Some(err) = params.error {
+        return Err(err);
+    }
+
+    let code = params.code.ok_or_else(|| "missing_code".to_string())?;
+    let oauth_state = params.state.ok_or_else(|| "missing_state".to_string())?;
+
+    let row = sqlx::query("DELETE FROM oauth_states WHERE state = ? RETURNING state")
+        .bind(&oauth_state)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| "db_error".to_string())?;
+
+    if row.is_none() {
+        return Err("invalid_state".to_string());
+    }
+
+    let redirect_uri = format!("{}/api/auth/google/callback", state.base_url);
+    let client_id = state.google_client_id.as_ref().unwrap();
+    let client_secret = state.google_client_secret.as_ref().unwrap();
+
+    let token_res = state
+        .http
+        .post("https://oauth2.googleapis.com/token")
+        .form(&[
+            ("code", code.as_str()),
+            ("client_id", client_id.as_str()),
+            ("client_secret", client_secret.as_str()),
+            ("redirect_uri", redirect_uri.as_str()),
+            ("grant_type", "authorization_code"),
+        ])
+        .send()
+        .await
+        .map_err(|_| "token_exchange_failed".to_string())?;
+
+    if !token_res.status().is_success() {
+        return Err("token_exchange_failed".to_string());
+    }
+
+    let token_data: GoogleTokenResponse = token_res
+        .json()
+        .await
+        .map_err(|_| "token_parse_failed".to_string())?;
+
+    let user_res = state
+        .http
+        .get("https://www.googleapis.com/oauth2/v2/userinfo")
+        .bearer_auth(&token_data.access_token)
+        .send()
+        .await
+        .map_err(|_| "userinfo_failed".to_string())?;
+
+    if !user_res.status().is_success() {
+        return Err("userinfo_failed".to_string());
+    }
+
+    let user_info: GoogleUserInfo = user_res
+        .json()
+        .await
+        .map_err(|_| "userinfo_parse_failed".to_string())?;
+
+    let user_id = find_or_create_google_user(&state.db, &user_info.id, &user_info.email)
+        .await
+        .map_err(|_| "db_error".to_string())?;
+
+    let token = create_session(&state.db, user_id)
+        .await
+        .map_err(|_| "session_error".to_string())?;
+
+    Ok(token)
+}
+
+async fn google_auth_callback(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<OAuthCallbackParams>,
+) -> Redirect {
+    match google_auth_inner(state, params).await {
+        Ok(token) => Redirect::to(&format!("/#token={}", token)),
+        Err(msg) => Redirect::to(&format!("/#auth_error={}", msg)),
+    }
+}
+
+async fn find_or_create_google_user(
+    db: &SqlitePool,
+    google_id: &str,
+    email: &str,
+) -> Result<i64, (StatusCode, String)> {
+    if let Some(row) = sqlx::query("SELECT id FROM users WHERE google_id = ?")
+        .bind(google_id)
+        .fetch_optional(db)
+        .await
+        .map_err(internal)?
+    {
+        return Ok(row.try_get("id").map_err(internal)?);
+    }
+
+    if let Some(row) = sqlx::query("SELECT id FROM users WHERE username = ?")
+        .bind(email)
+        .fetch_optional(db)
+        .await
+        .map_err(internal)?
+    {
+        let user_id: i64 = row.try_get("id").map_err(internal)?;
+        sqlx::query("UPDATE users SET google_id = ? WHERE id = ?")
+            .bind(google_id)
+            .bind(user_id)
+            .execute(db)
+            .await
+            .map_err(internal)?;
+        return Ok(user_id);
+    }
+
+    let row = sqlx::query(
+        "INSERT INTO users (username, password_hash, google_id) VALUES (?, '', ?) RETURNING id",
+    )
+    .bind(email)
+    .bind(google_id)
+    .fetch_one(db)
+    .await
+    .map_err(internal)?;
+
+    Ok(row.try_get("id").map_err(internal)?)
+}
+
 // ── DB setup ──────────────────────────────────────────────────────────────────
 
 async fn get_db_pool() -> SqlitePool {
@@ -384,26 +579,72 @@ async fn init_db(pool: &SqlitePool) {
     .expect("Could not create sessions table");
 }
 
+async fn migrate_db(pool: &SqlitePool) {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS oauth_states (
+            state TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("Could not create oauth_states table");
+
+    // Ignore error if column already exists
+    let _ = sqlx::query("ALTER TABLE users ADD COLUMN google_id TEXT")
+        .execute(pool)
+        .await;
+
+    sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id \
+         ON users(google_id) WHERE google_id IS NOT NULL",
+    )
+    .execute(pool)
+    .await
+    .expect("Could not create google_id index");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() {
     let db = get_db_pool().await;
     init_db(&db).await;
+    migrate_db(&db).await;
 
-    let state = Arc::new(AppState { db });
+    let google_client_id = std::env::var("GOOGLE_CLIENT_ID").ok();
+    let google_client_secret = std::env::var("GOOGLE_CLIENT_SECRET").ok();
+    let base_url = std::env::var("BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let has_google = google_client_id.is_some();
 
-    let app = Router::new()
+    let state = Arc::new(AppState {
+        db,
+        http: reqwest::Client::new(),
+        google_client_id,
+        google_client_secret,
+        base_url,
+    });
+
+    let mut app = Router::new()
         .route("/api/register", post(register))
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         .route("/api/state", get(get_state))
         .route("/api/answer", post(submit_answer))
         .route("/api/reset", post(reset_progress))
+        .route("/api/config", get(get_config))
         .route("/", get(serve_index))
         .route("/style.css", get(serve_css))
-        .route("/app.js", get(serve_js))
-        .with_state(state);
+        .route("/app.js", get(serve_js));
+
+    if has_google {
+        app = app
+            .route("/api/auth/google", get(google_auth_start))
+            .route("/api/auth/google/callback", get(google_auth_callback));
+    }
+
+    let app = app.with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
