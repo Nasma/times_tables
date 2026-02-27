@@ -66,7 +66,13 @@ impl ProblemStats {
     pub fn record_answer(&mut self, correct: bool, response_secs: f64) {
         if correct {
             self.times_correct += 1;
-            let increment = if self.problem.a == 1 || self.problem.b == 1 { 6 } else { 1 };
+            let increment = if self.problem.a == 1 || self.problem.b == 1 {
+                6
+            } else if self.problem.a == 10 || self.problem.b == 10 {
+                3
+            } else {
+                1
+            };
             self.consecutive_correct += increment;
 
             if self.interval_days == 0.0 {
