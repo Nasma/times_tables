@@ -74,42 +74,15 @@ impl ProblemStats {
         let is_fast = response_secs < 3.0;
 
         if correct {
-            self.times_correct += 1;
-            let increment = if self.problem.a == 1 || self.problem.b == 1 {
-                6
-            } else if self.problem.a == 10 || self.problem.b == 10 {
+            let repeat_count = if self.problem.a == 1 || self.problem.b == 1 {
                 3
+            } else if self.problem.a == 10 || self.problem.b == 10 {
+                2
             } else {
                 1
             };
-            self.consecutive_correct += increment;
-
-            if self.interval_days == 0.0 {
-                self.interval_days = 1.0;
-            } else if self.interval_days < 1.0 {
-                self.interval_days = 1.0;
-            } else {
-                self.interval_days *= self.ease_factor;
-            }
-
-            // Adjust ease factor based on response time
-            // Fast (< 3s): +0.15, Normal (3-8s): +0.1, Slow (> 8s): +0.05
-            let ease_bonus = if is_fast {
-                0.15
-            } else if response_secs <= 8.0 {
-                0.1
-            } else {
-                0.05
-            };
-            self.ease_factor += ease_bonus;
-            if self.ease_factor > 3.0 {
-                self.ease_factor = 3.0;
-            }
-
-            if is_fast {
-                self.consecutive_fast_correct += 1;
-            } else {
-                self.consecutive_fast_correct = 0;
+            for _ in 0..repeat_count {
+                self.apply_one_correct(response_secs);
             }
         } else {
             self.times_wrong += 1;
@@ -138,6 +111,40 @@ impl ProblemStats {
         }
         if self.consecutive_fast_correct >= 3 {
             self.best_tier = self.best_tier.max(4);
+        }
+    }
+
+    fn apply_one_correct(&mut self, response_secs: f64) {
+        let is_fast = response_secs < 3.0;
+        self.times_correct += 1;
+        self.consecutive_correct += 1;
+
+        if self.interval_days == 0.0 {
+            self.interval_days = 1.0;
+        } else if self.interval_days < 1.0 {
+            self.interval_days = 1.0;
+        } else {
+            self.interval_days *= self.ease_factor;
+        }
+
+        // Adjust ease factor based on response time
+        // Fast (< 3s): +0.15, Normal (3-8s): +0.1, Slow (> 8s): +0.05
+        let ease_bonus = if is_fast {
+            0.15
+        } else if response_secs <= 8.0 {
+            0.1
+        } else {
+            0.05
+        };
+        self.ease_factor += ease_bonus;
+        if self.ease_factor > 3.0 {
+            self.ease_factor = 3.0;
+        }
+
+        if is_fast {
+            self.consecutive_fast_correct += 1;
+        } else {
+            self.consecutive_fast_correct = 0;
         }
     }
 }
