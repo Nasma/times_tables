@@ -53,6 +53,12 @@ struct StateResponse {
     total: usize,
     due: usize,
     grid: Vec<&'static str>,
+    enabled_tables: Vec<u8>,
+}
+
+#[derive(Deserialize)]
+struct SetTablesRequest {
+    enabled: Vec<u8>,
 }
 
 #[derive(Deserialize)]
@@ -77,6 +83,7 @@ struct AnswerResponse {
     total: usize,
     due: usize,
     grid: Vec<&'static str>,
+    enabled_tables: Vec<u8>,
 }
 
 #[derive(Deserialize)]
@@ -318,9 +325,10 @@ async fn get_state(
     Ok(Json(StateResponse {
         problem,
         mastered: sr.mastered_count(),
-        total: sr.unlocked_problems(),
+        total: sr.enabled_problems(),
         due: sr.due_count(),
         grid: sr.grid_status(),
+        enabled_tables: sr.get_enabled_tables(),
     }))
 }
 
@@ -348,9 +356,34 @@ async fn submit_answer(
         correct_answer,
         next_problem: next,
         mastered: sr.mastered_count(),
-        total: sr.unlocked_problems(),
+        total: sr.enabled_problems(),
         due: sr.due_count(),
         grid: sr.grid_status(),
+        enabled_tables: sr.get_enabled_tables(),
+    }))
+}
+
+async fn set_enabled_tables(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<SetTablesRequest>,
+) -> AppResult<StateResponse> {
+    let user_id = authenticate(&state.db, &headers)
+        .await
+        .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
+
+    let mut sr = load_user_state(&state.db, user_id).await?;
+    sr.set_enabled_tables(req.enabled);
+    save_user_state(&state.db, user_id, &sr).await?;
+
+    let problem = pick_problem(&sr, None);
+    Ok(Json(StateResponse {
+        problem,
+        mastered: sr.mastered_count(),
+        total: sr.enabled_problems(),
+        due: sr.due_count(),
+        grid: sr.grid_status(),
+        enabled_tables: sr.get_enabled_tables(),
     }))
 }
 
@@ -641,6 +674,7 @@ async fn main() {
         .route("/api/state", get(get_state))
         .route("/api/answer", post(submit_answer))
         .route("/api/reset", post(reset_progress))
+        .route("/api/tables", post(set_enabled_tables))
         .route("/api/config", get(get_config))
         .route("/", get(serve_index))
         .route("/style.css", get(serve_css))

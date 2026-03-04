@@ -216,7 +216,7 @@ impl eframe::App for TimesTablesApp {
                 ui.label(format!(
                     "Mastered: {}/{}",
                     self.spaced_rep.mastered_count(),
-                    self.spaced_rep.unlocked_problems()
+                    self.spaced_rep.enabled_problems()
                 ));
                 ui.separator();
                 ui.label(format!("Due: {}", self.spaced_rep.due_count()));
@@ -224,14 +224,27 @@ impl eframe::App for TimesTablesApp {
 
             ui.add_space(5.0);
 
-            ui.horizontal(|ui| {
-                ui.label(format!(
-                    "Tables: {}",
-                    self.spaced_rep.unlocked_tables_display()
-                ));
-                if let Some(next) = self.spaced_rep.next_table_to_unlock() {
-                    ui.separator();
-                    ui.label(format!("Next: {}×", next));
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Tables:");
+                for t in 1u8..=12 {
+                    let mut enabled = self.spaced_rep.is_table_enabled(t);
+                    if ui.checkbox(&mut enabled, t.to_string()).changed() {
+                        self.spaced_rep.set_table_enabled(t, enabled);
+                        if let Some(problem) = self.current_problem {
+                            if !self.spaced_rep.is_problem_enabled(&problem) {
+                                self.last_problem = None;
+                                self.current_problem = self.spaced_rep.get_next_problem(None);
+                                if self.current_problem.is_none() {
+                                    self.current_problem =
+                                        self.spaced_rep.get_extra_practice_problem(None);
+                                }
+                                self.problem_start = Instant::now();
+                                self.answer_input.clear();
+                                self.feedback = FeedbackState::None;
+                            }
+                        }
+                        let _ = storage::save(&self.spaced_rep);
+                    }
                 }
             });
 

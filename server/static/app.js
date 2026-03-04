@@ -14,6 +14,7 @@ const state = {
   mastered: 0,
   total: 0,
   due: 0,
+  enabledTables: [1,2,3,4,5,6,7,8,9,10,11,12],
 };
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
@@ -47,6 +48,7 @@ const resetCancel     = $('reset-cancel');
 const logoutBtn       = $('logout-btn');
 const googleAuth      = $('google-auth');
 const progressGrid    = $('progress-grid');
+const tablesCheckboxes = $('tables-checkboxes');
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -124,6 +126,47 @@ function updateStats() {
   sessionWrongEl.textContent = state.sessionWrong;
 }
 
+function renderCheckboxes(enabled) {
+  tablesCheckboxes.innerHTML = '';
+  for (let n = 1; n <= 12; n++) {
+    const label = document.createElement('label');
+    label.className = 'table-check';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = enabled.includes(n);
+    cb.addEventListener('change', () => onTableToggle(n, cb.checked));
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(n));
+    tablesCheckboxes.appendChild(label);
+  }
+}
+
+async function onTableToggle(table, enabled) {
+  if (enabled) {
+    state.enabledTables = [...state.enabledTables, table].sort((a, b) => a - b);
+  } else {
+    state.enabledTables = state.enabledTables.filter(t => t !== table);
+  }
+
+  const res = await apiPost('/api/tables', { enabled: state.enabledTables });
+  if (res.status === 401) {
+    localStorage.removeItem('token');
+    showAuth();
+    return;
+  }
+  if (!res.ok) return;
+
+  const data = await res.json();
+  state.mastered = data.mastered;
+  state.total = data.total;
+  state.due = data.due;
+  state.enabledTables = data.enabled_tables;
+  updateStats();
+  renderGrid(data.grid);
+  renderCheckboxes(state.enabledTables);
+  displayProblem(data.problem);
+}
+
 function renderGrid(grid) {
   progressGrid.innerHTML = '';
   grid.forEach((status, i) => {
@@ -153,8 +196,10 @@ async function loadState() {
   state.mastered = data.mastered;
   state.total = data.total;
   state.due = data.due;
+  state.enabledTables = data.enabled_tables;
   updateStats();
   renderGrid(data.grid);
+  renderCheckboxes(state.enabledTables);
   displayProblem(data.problem);
   showPractice();
 }
@@ -226,6 +271,7 @@ async function submitAnswer() {
   state.mastered = data.mastered;
   state.total = data.total;
   state.due = data.due;
+  state.enabledTables = data.enabled_tables;
   renderGrid(data.grid);
 
   if (data.correct) {

@@ -353,6 +353,46 @@ button:active { opacity: 0.85; }
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 
+/* Tables checkboxes */
+.tables-section {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  padding: 0.75rem 1.25rem;
+  margin-top: 1rem;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+.tables-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.tables-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.75rem;
+}
+
+.table-check {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.table-check input[type="checkbox"] {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+
 /* Messages */
 .error-msg {
   color: var(--danger);

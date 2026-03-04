@@ -1,17 +1,17 @@
-use crate::problem::{generate_all_problems, Problem, ProblemStats, TABLE_ORDER};
+use crate::problem::{generate_all_problems, Problem, ProblemStats};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+fn default_enabled_tables() -> HashSet<u8> {
+    (1u8..=12).collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpacedRepetition {
     stats: HashMap<String, ProblemStats>,
-    #[serde(default = "default_unlocked")]
-    unlocked_tables: usize,
-}
-
-fn default_unlocked() -> usize {
-    1
+    #[serde(default = "default_enabled_tables")]
+    enabled_tables: HashSet<u8>,
 }
 
 impl Default for SpacedRepetition {
@@ -28,45 +28,35 @@ impl SpacedRepetition {
         }
         Self {
             stats,
-            unlocked_tables: 1,
+            enabled_tables: default_enabled_tables(),
         }
     }
 
-    fn unlocked_table_set(&self) -> HashSet<u8> {
-        TABLE_ORDER
-            .iter()
-            .take(self.unlocked_tables)
-            .copied()
-            .collect()
-    }
-
-    fn is_problem_unlocked(&self, problem: &Problem) -> bool {
-        let unlocked = self.unlocked_table_set();
+    pub fn is_problem_enabled(&self, problem: &Problem) -> bool {
         let (a, b) = problem.tables_required();
-        unlocked.contains(&a) || unlocked.contains(&b)
+        self.enabled_tables.contains(&a) || self.enabled_tables.contains(&b)
     }
 
-    fn check_unlock_next_table(&mut self) {
-        if self.unlocked_tables >= TABLE_ORDER.len() {
-            return;
+    pub fn is_table_enabled(&self, table: u8) -> bool {
+        self.enabled_tables.contains(&table)
+    }
+
+    pub fn set_table_enabled(&mut self, table: u8, enabled: bool) {
+        if enabled {
+            self.enabled_tables.insert(table);
+        } else {
+            self.enabled_tables.remove(&table);
         }
+    }
 
-        let unlocked_problems: Vec<_> = self
-            .stats
-            .values()
-            .filter(|s| self.is_problem_unlocked(&s.problem))
-            .collect();
+    pub fn set_enabled_tables(&mut self, tables: impl IntoIterator<Item = u8>) {
+        self.enabled_tables = tables.into_iter().filter(|&t| t >= 1 && t <= 12).collect();
+    }
 
-        if unlocked_problems.is_empty() {
-            return;
-        }
-
-        let mastered = unlocked_problems.iter().filter(|s| s.is_mastered()).count();
-        let total = unlocked_problems.len();
-
-        if mastered >= total * 3 / 4 {
-            self.unlocked_tables += 1;
-        }
+    pub fn get_enabled_tables(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = self.enabled_tables.iter().copied().collect();
+        v.sort();
+        v
     }
 
     pub fn get_next_problem(&self, last: Option<&Problem>) -> Option<Problem> {
@@ -75,7 +65,7 @@ impl SpacedRepetition {
             .values()
             .filter(|s| {
                 s.is_due()
-                    && self.is_problem_unlocked(&s.problem)
+                    && self.is_problem_enabled(&s.problem)
                     && last.map_or(true, |l| s.problem != *l)
             })
             .collect();
@@ -94,53 +84,52 @@ impl SpacedRepetition {
     }
 
     pub fn get_extra_practice_problem(&self, last: Option<&Problem>) -> Option<Problem> {
-        let mut unlocked: Vec<_> = self
+        let mut enabled: Vec<_> = self
             .stats
             .values()
             .filter(|s| {
-                self.is_problem_unlocked(&s.problem)
+                self.is_problem_enabled(&s.problem)
                     && last.map_or(true, |l| s.problem != *l)
             })
             .collect();
 
-        if unlocked.is_empty() {
+        if enabled.is_empty() {
             return None;
         }
 
-        unlocked.sort_by(|a, b| {
+        enabled.sort_by(|a, b| {
             a.ease_factor
                 .partial_cmp(&b.ease_factor)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        unlocked.first().map(|s| s.problem)
+        enabled.first().map(|s| s.problem)
     }
 
     pub fn record_answer(&mut self, problem: &Problem, correct: bool, response_secs: f64) {
         if let Some(stats) = self.stats.get_mut(&problem.key()) {
             stats.record_answer(correct, response_secs);
         }
-        self.check_unlock_next_table();
     }
 
-    pub fn unlocked_problems(&self) -> usize {
+    pub fn enabled_problems(&self) -> usize {
         self.stats
             .values()
-            .filter(|s| self.is_problem_unlocked(&s.problem))
+            .filter(|s| self.is_problem_enabled(&s.problem))
             .count()
     }
 
     pub fn mastered_count(&self) -> usize {
         self.stats
             .values()
-            .filter(|s| self.is_problem_unlocked(&s.problem) && s.is_mastered())
+            .filter(|s| self.is_problem_enabled(&s.problem) && s.is_mastered())
             .count()
     }
 
     pub fn due_count(&self) -> usize {
         self.stats
             .values()
-            .filter(|s| self.is_problem_unlocked(&s.problem) && s.is_due())
+            .filter(|s| self.is_problem_enabled(&s.problem) && s.is_due())
             .count()
     }
 
@@ -150,19 +139,6 @@ impl SpacedRepetition {
 
     pub fn total_wrong(&self) -> u32 {
         self.stats.values().map(|s| s.times_wrong).sum()
-    }
-
-    pub fn unlocked_tables_display(&self) -> String {
-        TABLE_ORDER
-            .iter()
-            .take(self.unlocked_tables)
-            .map(|n| n.to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-
-    pub fn next_table_to_unlock(&self) -> Option<u8> {
-        TABLE_ORDER.get(self.unlocked_tables).copied()
     }
 
     /// Returns a 144-element vec (a=1..12, b=1..12) with the achievement tier of each cell.

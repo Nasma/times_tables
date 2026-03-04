@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-pub const TABLE_ORDER: [u8; 12] = [1, 10, 5, 11, 2, 3, 9, 4, 6, 7, 8, 12];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Problem {
