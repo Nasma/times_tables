@@ -48,7 +48,7 @@ const resetCancel     = $('reset-cancel');
 const logoutBtn       = $('logout-btn');
 const googleAuth      = $('google-auth');
 const progressGrid    = $('progress-grid');
-const tablesCheckboxes = $('tables-checkboxes');
+const tableRowsEl     = $('table-rows');
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -126,18 +126,59 @@ function updateStats() {
   sessionWrongEl.textContent = state.sessionWrong;
 }
 
-function renderCheckboxes(enabled) {
-  tablesCheckboxes.innerHTML = '';
+const TIER_VAL = { not_started: 0, learning: 1, solid: 2, fast: 3, mastered: 4 };
+
+function renderTableRows(grid) {
+  tableRowsEl.innerHTML = '';
   for (let n = 1; n <= 12; n++) {
-    const label = document.createElement('label');
-    label.className = 'table-check';
+    const tiers = grid.slice((n - 1) * 12, n * 12).map(s => TIER_VAL[s]);
+    const min = Math.min(...tiers);
+    const countSolid    = tiers.filter(t => t >= 2).length;
+    const countFast     = tiers.filter(t => t >= 3).length;
+    const countMastered = tiers.filter(t => t >= 4).length;
+
+    const row = document.createElement('div');
+    row.className = 'table-row';
+
     const cb = document.createElement('input');
     cb.type = 'checkbox';
-    cb.checked = enabled.includes(n);
+    cb.checked = state.enabledTables.includes(n);
     cb.addEventListener('change', () => onTableToggle(n, cb.checked));
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(n));
-    tablesCheckboxes.appendChild(label);
+    row.appendChild(cb);
+
+    const lbl = document.createElement('span');
+    lbl.className = 'table-row-label';
+    lbl.textContent = `${n}×`;
+    row.appendChild(lbl);
+
+    let milestoneClass = '', milestoneText = '', counterText = '';
+    if (min >= 4) {
+      milestoneClass = 'mastered'; milestoneText = 'Mastered';
+    } else if (min >= 3) {
+      milestoneClass = 'fast'; milestoneText = 'Fast';
+      counterText = `${countMastered}/12 mastered`;
+    } else if (min >= 2) {
+      milestoneClass = 'solid'; milestoneText = 'Solid';
+      counterText = `${countFast}/12 fast`;
+    } else {
+      counterText = `${countSolid}/12 solid`;
+    }
+
+    if (milestoneText) {
+      const badge = document.createElement('span');
+      badge.className = `table-milestone ${milestoneClass}`;
+      badge.textContent = milestoneText;
+      row.appendChild(badge);
+    }
+
+    if (counterText) {
+      const counter = document.createElement('span');
+      counter.className = 'table-counter';
+      counter.textContent = counterText;
+      row.appendChild(counter);
+    }
+
+    tableRowsEl.appendChild(row);
   }
 }
 
@@ -163,7 +204,7 @@ async function onTableToggle(table, enabled) {
   state.enabledTables = data.enabled_tables;
   updateStats();
   renderGrid(data.grid);
-  renderCheckboxes(state.enabledTables);
+  renderTableRows(data.grid);
   displayProblem(data.problem);
 }
 
@@ -199,7 +240,7 @@ async function loadState() {
   state.enabledTables = data.enabled_tables;
   updateStats();
   renderGrid(data.grid);
-  renderCheckboxes(state.enabledTables);
+  renderTableRows(data.grid);
   displayProblem(data.problem);
   showPractice();
 }
@@ -273,6 +314,7 @@ async function submitAnswer() {
   state.due = data.due;
   state.enabledTables = data.enabled_tables;
   renderGrid(data.grid);
+  renderTableRows(data.grid);
 
   if (data.correct) {
     state.streak += 1;
