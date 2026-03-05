@@ -131,23 +131,20 @@ function renderTableRows(grid) {
     lbl.textContent = `${n}×`;
     row.appendChild(lbl);
 
-    let milestoneClass = '', milestoneText = '', counterText = '';
-    if (min >= 4) {
-      milestoneClass = 'mastered'; milestoneText = 'Mastered';
-    } else if (min >= 3) {
-      milestoneClass = 'fast'; milestoneText = 'Fast';
-      counterText = `${countMastered}/12 mastered`;
-    } else if (min >= 2) {
-      milestoneClass = 'solid'; milestoneText = 'Solid';
-      counterText = `${countFast}/12 fast`;
-    } else {
-      counterText = `${countSolid}/12 solid`;
-    }
+    const milestones = [];
+    let counterText = '';
+    if (min >= 2) milestones.push('solid');
+    if (min >= 3) milestones.push('fast');
+    if (min >= 4) milestones.push('mastered');
 
-    if (milestoneText) {
+    if (min < 2)      counterText = `${countSolid}/12 solid`;
+    else if (min < 3) counterText = `${countFast}/12 fast`;
+    else if (min < 4) counterText = `${countMastered}/12 mastered`;
+
+    for (const m of milestones) {
       const badge = document.createElement('span');
-      badge.className = `table-milestone ${milestoneClass}`;
-      badge.textContent = milestoneText;
+      badge.className = `table-milestone ${m}`;
+      badge.textContent = m.charAt(0).toUpperCase() + m.slice(1);
       row.appendChild(badge);
     }
 
