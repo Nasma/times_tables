@@ -8,12 +8,6 @@ const state = {
   correctAnswer: null,
   pendingNextProblem: null, // next problem to show after correction
   problemStartMs: 0,
-  streak: 0,
-  sessionCorrect: 0,
-  sessionWrong: 0,
-  mastered: 0,
-  total: 0,
-  due: 0,
   enabledTables: [1,2,3,4,5,6,7,8,9,10,11,12],
 };
 
@@ -35,12 +29,6 @@ const submitBtn       = $('submit-btn');
 const correctionMode  = $('correction-mode');
 const incorrectMsg    = $('incorrect-msg');
 const correctionInput = $('correction-input');
-const streakEl        = $('streak');
-const masteredEl      = $('mastered');
-const totalEl         = $('total');
-const dueEl           = $('due');
-const sessionCorrectEl = $('session-correct');
-const sessionWrongEl  = $('session-wrong');
 const resetBtn        = $('reset-btn');
 const resetConfirm    = $('reset-confirm');
 const resetYes        = $('reset-yes');
@@ -117,14 +105,6 @@ function displayProblem(problem) {
   showNormalMode();
 }
 
-function updateStats() {
-  streakEl.textContent = state.streak;
-  masteredEl.textContent = state.mastered;
-  totalEl.textContent = state.total;
-  dueEl.textContent = state.due;
-  sessionCorrectEl.textContent = state.sessionCorrect;
-  sessionWrongEl.textContent = state.sessionWrong;
-}
 
 const TIER_VAL = { not_started: 0, learning: 1, solid: 2, fast: 3, mastered: 4 };
 
@@ -198,11 +178,7 @@ async function onTableToggle(table, enabled) {
   if (!res.ok) return;
 
   const data = await res.json();
-  state.mastered = data.mastered;
-  state.total = data.total;
-  state.due = data.due;
   state.enabledTables = data.enabled_tables;
-  updateStats();
   renderGrid(data.grid);
   renderTableRows(data.grid);
   displayProblem(data.problem);
@@ -234,11 +210,7 @@ async function loadState() {
     return;
   }
   const data = await res.json();
-  state.mastered = data.mastered;
-  state.total = data.total;
-  state.due = data.due;
   state.enabledTables = data.enabled_tables;
-  updateStats();
   renderGrid(data.grid);
   renderTableRows(data.grid);
   displayProblem(data.problem);
@@ -259,10 +231,6 @@ async function doAuth(endpoint) {
     const data = await res.json();
     localStorage.setItem('token', data.token);
     passwordInput.value = '';
-    // Reset session stats on new login
-    state.streak = 0;
-    state.sessionCorrect = 0;
-    state.sessionWrong = 0;
     await loadState();
   } else {
     const msg = await res.text();
@@ -309,22 +277,13 @@ async function submitAnswer() {
   if (!res.ok) return;
 
   const data = await res.json();
-  state.mastered = data.mastered;
-  state.total = data.total;
-  state.due = data.due;
   state.enabledTables = data.enabled_tables;
   renderGrid(data.grid);
   renderTableRows(data.grid);
 
   if (data.correct) {
-    state.streak += 1;
-    state.sessionCorrect += 1;
-    updateStats();
     displayProblem(data.next_problem);
   } else {
-    state.streak = 0;
-    state.sessionWrong += 1;
-    updateStats();
     showCorrectionMode(answer, data.correct_answer, data.next_problem);
   }
 }
@@ -372,9 +331,6 @@ resetYes.addEventListener('click', async () => {
   }
   if (!res.ok) return;
 
-  state.streak = 0;
-  state.sessionCorrect = 0;
-  state.sessionWrong = 0;
   await loadState();
 });
 
