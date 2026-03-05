@@ -115,7 +115,7 @@ impl ProblemStats {
     }
 
     fn apply_one_correct(&mut self, response_secs: f64) {
-        let is_fast = response_secs < 3.0;
+        let is_fast = response_secs < 2.0;
         self.times_correct += 1;
         self.consecutive_correct += 1;
 
