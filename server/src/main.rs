@@ -349,6 +349,22 @@ async fn submit_answer(
     sr.record_answer(&problem, correct, req.elapsed_secs);
     save_user_state(&state.db, user_id, &sr).await?;
 
+    let answered_at = Utc::now().to_rfc3339();
+    sqlx::query(
+        "INSERT INTO responses (user_id, a, b, answer, elapsed_secs, correct, answered_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(req.a)
+    .bind(req.b)
+    .bind(req.answer)
+    .bind(req.elapsed_secs)
+    .bind(correct)
+    .bind(&answered_at)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
     let next = pick_problem(&sr, Some(&problem));
 
     Ok(Json(AnswerResponse {
@@ -630,6 +646,22 @@ async fn migrate_db(pool: &SqlitePool) {
     .execute(pool)
     .await
     .expect("Could not create oauth_states table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS responses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            a INTEGER NOT NULL,
+            b INTEGER NOT NULL,
+            answer INTEGER NOT NULL,
+            elapsed_secs REAL NOT NULL,
+            correct INTEGER NOT NULL,
+            answered_at TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("Could not create responses table");
 
     // Ignore error if column already exists
     let _ = sqlx::query("ALTER TABLE users ADD COLUMN google_id TEXT")
