@@ -13,6 +13,7 @@ use chrono::Utc;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tt_core::{problem::Problem, spaced_rep::SpacedRepetition};
 
@@ -25,6 +26,7 @@ struct AppState {
     google_client_id: Option<String>,
     google_client_secret: Option<String>,
     base_url: String,
+    responses_dir: PathBuf,
 }
 
 // ── Request / Response types ──────────────────────────────────────────────────
@@ -350,20 +352,20 @@ async fn submit_answer(
     save_user_state(&state.db, user_id, &sr).await?;
 
     let answered_at = Utc::now().to_rfc3339();
-    sqlx::query(
-        "INSERT INTO responses (user_id, a, b, answer, elapsed_secs, correct, answered_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(user_id)
-    .bind(req.a)
-    .bind(req.b)
-    .bind(req.answer)
-    .bind(req.elapsed_secs)
-    .bind(correct)
-    .bind(&answered_at)
-    .execute(&state.db)
-    .await
-    .map_err(internal)?;
+    {
+        use tokio::io::AsyncWriteExt;
+        let user_dir = state.responses_dir.join(user_id.to_string());
+        tokio::fs::create_dir_all(&user_dir).await.map_err(internal)?;
+        let file_path = user_dir.join(format!("{}x{}.csv", req.a, req.b));
+        let line = format!("{},{},{},{}\n", answered_at, req.elapsed_secs, req.answer, correct as u8);
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&file_path)
+            .await
+            .map_err(internal)?;
+        file.write_all(line.as_bytes()).await.map_err(internal)?;
+    }
 
     let next = pick_problem(&sr, Some(&problem));
 
@@ -582,14 +584,18 @@ async fn find_or_create_google_user(
 
 // ── DB setup ──────────────────────────────────────────────────────────────────
 
-async fn get_db_pool() -> SqlitePool {
-    let data_dir = if let Ok(dir) = std::env::var("DATA_DIR") {
-        std::path::PathBuf::from(dir)
+fn get_data_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("DATA_DIR") {
+        PathBuf::from(dir)
     } else {
         let dirs = ProjectDirs::from("com", "practice", "times_tables_server")
             .expect("Could not determine data directory");
         dirs.data_dir().to_path_buf()
-    };
+    }
+}
+
+async fn get_db_pool() -> SqlitePool {
+    let data_dir = get_data_dir();
     std::fs::create_dir_all(&data_dir).expect("Could not create data directory");
     let db_path = data_dir.join("db.sqlite");
 
@@ -647,22 +653,6 @@ async fn migrate_db(pool: &SqlitePool) {
     .await
     .expect("Could not create oauth_states table");
 
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS responses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            a INTEGER NOT NULL,
-            b INTEGER NOT NULL,
-            answer INTEGER NOT NULL,
-            elapsed_secs REAL NOT NULL,
-            correct INTEGER NOT NULL,
-            answered_at TEXT NOT NULL
-        )",
-    )
-    .execute(pool)
-    .await
-    .expect("Could not create responses table");
-
     // Ignore error if column already exists
     let _ = sqlx::query("ALTER TABLE users ADD COLUMN google_id TEXT")
         .execute(pool)
@@ -685,6 +675,9 @@ async fn main() {
     init_db(&db).await;
     migrate_db(&db).await;
 
+    let responses_dir = get_data_dir().join("responses");
+    std::fs::create_dir_all(&responses_dir).expect("Could not create responses directory");
+
     let google_client_id = std::env::var("GOOGLE_CLIENT_ID").ok();
     let google_client_secret = std::env::var("GOOGLE_CLIENT_SECRET").ok();
     let base_url = std::env::var("BASE_URL")
@@ -697,6 +690,7 @@ async fn main() {
         google_client_id,
         google_client_secret,
         base_url,
+        responses_dir,
     });
 
     let mut app = Router::new()
