@@ -235,6 +235,30 @@ async fn load_responses(
         .collect()
 }
 
+const MAX_RESPONSE_LINES: usize = 100;
+
+async fn append_response(
+    responses_dir: &std::path::Path,
+    user_id: i64,
+    a: u8,
+    b: u8,
+    new_line: &str,
+) -> Result<(), (StatusCode, String)> {
+    let user_dir = responses_dir.join(user_id.to_string());
+    tokio::fs::create_dir_all(&user_dir).await.map_err(internal)?;
+    let file_path = user_dir.join(format!("{}x{}.csv", a, b));
+
+    let existing = tokio::fs::read_to_string(&file_path).await.unwrap_or_default();
+    let mut lines: Vec<&str> = existing.lines().collect();
+    lines.push(new_line);
+
+    let start = lines.len().saturating_sub(MAX_RESPONSE_LINES);
+    let content = lines[start..].join("\n") + "\n";
+
+    tokio::fs::write(&file_path, content).await.map_err(internal)?;
+    Ok(())
+}
+
 // ── Problem selection ─────────────────────────────────────────────────────────
 
 struct ProblemData {
@@ -455,20 +479,8 @@ async fn submit_answer(
     save_user_state(&state.db, user_id, &sr).await?;
 
     let answered_at = Utc::now().to_rfc3339();
-    {
-        use tokio::io::AsyncWriteExt;
-        let user_dir = state.responses_dir.join(user_id.to_string());
-        tokio::fs::create_dir_all(&user_dir).await.map_err(internal)?;
-        let file_path = user_dir.join(format!("{}x{}.csv", req.a, req.b));
-        let line = format!("{},{},{},{}\n", answered_at, req.elapsed_secs, req.answer, correct as u8);
-        let mut file = tokio::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&file_path)
-            .await
-            .map_err(internal)?;
-        file.write_all(line.as_bytes()).await.map_err(internal)?;
-    }
+    let line = format!("{},{},{},{}", answered_at, req.elapsed_secs, req.answer, correct as u8);
+    append_response(&state.responses_dir, user_id, req.a, req.b, &line).await?;
 
     let next = pick_problem(&sr, &state.responses_dir, user_id, Some(&problem)).await;
 
