@@ -85,10 +85,12 @@ impl SpacedRepetition {
         });
 
         use rand::seq::SliceRandom;
-        let mut pool: Vec<&ProblemStats> = problems.iter().copied().take(9).collect();
+        let mut pool: Vec<&ProblemStats> = problems.iter().copied().take(8).collect();
 
-        // Also include the problem least recently asked (or never asked).
-        if let Some(oldest) = problems.iter().min_by_key(|s| s.last_asked_at_secs()) {
+        // Also include the 2 least-recently-asked problems (or never asked).
+        let mut by_age = problems.clone();
+        by_age.sort_by_key(|s| s.last_asked_at_secs());
+        for oldest in by_age.iter().take(2) {
             if !pool.iter().any(|p| p.problem == oldest.problem) {
                 pool.push(oldest);
             }
