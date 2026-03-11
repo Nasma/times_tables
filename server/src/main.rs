@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tt_core::{problem::{estimate_response_time, Problem}, spaced_rep::SpacedRepetition};
+use tt_core::{problem::{estimate_response_time, generate_all_problems, Problem}, spaced_rep::SpacedRepetition};
 use chrono::DateTime;
 
 // ── App state ─────────────────────────────────────────────────────────────────
@@ -338,6 +338,75 @@ async fn pick_problem(
         .unwrap_or(Problem::new(1, 1));
 
     ProblemDto { a: chosen.a, b: chosen.b }
+}
+
+// ── Debug ─────────────────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct DebugProblemEntry {
+    a: u8,
+    b: u8,
+    errors_in_last_5: u32,
+    estimated_time: f64,
+    no_data: bool,
+}
+
+#[derive(Serialize)]
+struct DebugResponse {
+    problems: Vec<DebugProblemEntry>,
+}
+
+async fn serve_debug() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        include_str!("../static/debug.html"),
+    )
+}
+
+async fn get_debug(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<DebugResponse> {
+    let user_id = authenticate(&state.db, &headers)
+        .await
+        .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
+
+    let mut entries: Vec<(ProblemData, bool)> = Vec::new();
+    for p in generate_all_problems() {
+        let records = load_responses(&state.responses_dir, user_id, p.a, p.b).await;
+        let errors_in_last_5 = records.iter().rev().take(5).filter(|r| !r.correct).count() as u32;
+        let correct_times: Vec<f64> = records.iter().rev()
+            .filter(|r| r.correct)
+            .map(|r| r.elapsed_secs)
+            .collect();
+        let raw_estimate = estimate_response_time(&correct_times);
+        let no_data = raw_estimate.is_none();
+        let estimated_time = raw_estimate.unwrap_or(10.0);
+        let last_asked_at = records.last().map(|r| r.answered_at);
+        let data = ProblemData { problem: p, errors_in_last_5, estimated_time, last_asked_at };
+        entries.push((data, no_data));
+    }
+
+    entries.sort_by(|(a, _), (b, _)| {
+        b.errors_in_last_5.cmp(&a.errors_in_last_5).then(
+            b.estimated_time
+                .partial_cmp(&a.estimated_time)
+                .unwrap_or(std::cmp::Ordering::Equal),
+        )
+    });
+
+    let problems = entries
+        .into_iter()
+        .map(|(d, no_data)| DebugProblemEntry {
+            a: d.problem.a,
+            b: d.problem.b,
+            errors_in_last_5: d.errors_in_last_5,
+            estimated_time: d.estimated_time,
+            no_data,
+        })
+        .collect();
+
+    Ok(Json(DebugResponse { problems }))
 }
 
 // ── Static file handlers ──────────────────────────────────────────────────────
@@ -819,7 +888,9 @@ async fn main() {
         .route("/api/config", get(get_config))
         .route("/", get(serve_index))
         .route("/style.css", get(serve_css))
-        .route("/app.js", get(serve_js));
+        .route("/app.js", get(serve_js))
+        .route("/debug", get(serve_debug))
+        .route("/api/debug", get(get_debug));
 
     if has_google {
         app = app

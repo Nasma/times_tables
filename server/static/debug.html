@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Debug – Problem Priority</title>
+  <style>
+    body { font-family: monospace; padding: 1rem; background: #f8f8f8; }
+    h1 { font-size: 1.2rem; margin-bottom: 1rem; }
+    #status { color: #666; margin-bottom: 1rem; }
+    table { border-collapse: collapse; width: 100%; max-width: 600px; }
+    th, td { border: 1px solid #ccc; padding: 0.3rem 0.7rem; text-align: left; }
+    th { background: #eee; }
+    tr:hover { background: #f0f0f0; }
+    .rank { color: #999; text-align: right; }
+    .errors-0 { }
+    .errors-hi { color: #c00; font-weight: bold; }
+    .time-fast { color: #080; }
+    .time-slow { color: #c00; }
+    .time-none { color: #999; }
+  </style>
+</head>
+<body>
+  <h1>Problem priority (debug)</h1>
+  <div id="status">Loading…</div>
+  <table id="table" style="display:none">
+    <thead>
+      <tr>
+        <th class="rank">#</th>
+        <th>Problem</th>
+        <th>Errors in last 5</th>
+        <th>Estimated time</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) {
+      document.getElementById('status').textContent = 'Not logged in.';
+    } else {
+      fetch('/api/debug', { headers: { Authorization: 'Bearer ' + token } })
+        .then(r => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(data => {
+          const tbody = document.getElementById('tbody');
+          data.problems.forEach((p, i) => {
+            const tr = document.createElement('tr');
+
+            const errClass = p.errors_in_last_5 > 0 ? 'errors-hi' : 'errors-0';
+            let timeText, timeClass;
+            if (p.no_data) {
+              timeText = '—';
+              timeClass = 'time-none';
+            } else if (p.estimated_time <= 2) {
+              timeText = p.estimated_time.toFixed(2) + 's';
+              timeClass = 'time-fast';
+            } else if (p.estimated_time >= 5) {
+              timeText = p.estimated_time.toFixed(2) + 's';
+              timeClass = 'time-slow';
+            } else {
+              timeText = p.estimated_time.toFixed(2) + 's';
+              timeClass = '';
+            }
+
+            tr.innerHTML =
+              `<td class="rank">${i + 1}</td>` +
+              `<td>${p.a} × ${p.b}</td>` +
+              `<td class="${errClass}">${p.errors_in_last_5}</td>` +
+              `<td class="${timeClass}">${timeText}</td>`;
+            tbody.appendChild(tr);
+          });
+          document.getElementById('status').textContent = '';
+          document.getElementById('table').style.display = '';
+        })
+        .catch(e => {
+          document.getElementById('status').textContent = 'Error: ' + e.message;
+        });
+    }
+  </script>
+</body>
+</html>
