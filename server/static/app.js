@@ -9,7 +9,10 @@ const state = {
   pendingNextProblem: null, // next problem to show after correction
   problemStartMs: 0,
   enabledTables: [1,2,3,4,5,6,7,8,9,10,11,12],
+  role: 'student',
 };
+
+let selectedRole = 'student';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
@@ -17,6 +20,7 @@ const $ = id => document.getElementById(id);
 
 const authView        = $('auth-view');
 const practiceView    = $('practice-view');
+const teacherView     = $('teacher-view');
 const usernameInput   = $('username');
 const passwordInput   = $('password');
 const loginBtn        = $('login-btn');
@@ -37,6 +41,13 @@ const logoutBtn       = $('logout-btn');
 const googleAuth      = $('google-auth');
 const progressGrid    = $('progress-grid');
 const tableRowsEl     = $('table-rows');
+const roleTabs        = $('role-tabs');
+const teacherLogoutBtn = $('teacher-logout-btn');
+const copyInviteBtn   = $('copy-invite-btn');
+const inviteUrlEl     = $('invite-url');
+const qrContainer     = $('qr-container');
+const studentListEl   = $('student-list');
+const noStudentsMsg   = $('no-students-msg');
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -66,12 +77,20 @@ async function apiGet(path) {
 function showAuth() {
   authView.classList.remove('hidden');
   practiceView.classList.add('hidden');
+  teacherView.classList.add('hidden');
   usernameInput.focus();
 }
 
 function showPractice() {
   authView.classList.add('hidden');
   practiceView.classList.remove('hidden');
+  teacherView.classList.add('hidden');
+}
+
+function showTeacher() {
+  authView.classList.add('hidden');
+  practiceView.classList.add('hidden');
+  teacherView.classList.remove('hidden');
 }
 
 function setAuthError(msg) {
@@ -207,11 +226,48 @@ async function loadState() {
     return;
   }
   const data = await res.json();
-  state.enabledTables = data.enabled_tables;
-  renderGrid(data.grid);
-  renderTableRows(data.grid);
-  displayProblem(data.problem);
-  showPractice();
+  state.role = data.role || 'student';
+
+  if (state.role === 'teacher') {
+    showTeacher();
+    await loadTeacherData();
+  } else {
+    state.enabledTables = data.enabled_tables;
+    renderGrid(data.grid);
+    renderTableRows(data.grid);
+    displayProblem(data.problem);
+    showPractice();
+  }
+}
+
+async function loadTeacherData() {
+  const [inviteRes, studentsRes] = await Promise.all([
+    apiGet('/api/teacher/invite'),
+    apiGet('/api/teacher/students'),
+  ]);
+
+  if (inviteRes.ok) {
+    const inv = await inviteRes.json();
+    inviteUrlEl.textContent = inv.join_url;
+    qrContainer.innerHTML = inv.qr_svg;
+  }
+
+  if (studentsRes.ok) {
+    const data = await studentsRes.json();
+    studentListEl.innerHTML = '';
+    if (data.students.length === 0) {
+      noStudentsMsg.classList.remove('hidden');
+    } else {
+      noStudentsMsg.classList.add('hidden');
+      for (const s of data.students) {
+        const row = document.createElement('div');
+        row.className = 'student-row';
+        row.innerHTML = `<span class="student-name">${s.username}</span>
+          <span class="student-progress">${s.mastered} / ${s.total} mastered</span>`;
+        studentListEl.appendChild(row);
+      }
+    }
+  }
 }
 
 async function doAuth(endpoint) {
@@ -223,7 +279,11 @@ async function doAuth(endpoint) {
   }
   setAuthError('');
 
-  const res = await apiPost(endpoint, { username, password });
+  const body = endpoint.includes('register')
+    ? { username, password, role: selectedRole }
+    : { username, password };
+
+  const res = await apiPost(endpoint, body);
   if (res.ok) {
     const data = await res.json();
     localStorage.setItem('token', data.token);
@@ -237,6 +297,14 @@ async function doAuth(endpoint) {
 
 loginBtn.addEventListener('click', () => doAuth('/api/login'));
 registerBtn.addEventListener('click', () => doAuth('/api/register'));
+
+// Role tabs
+roleTabs.addEventListener('click', e => {
+  const tab = e.target.closest('.role-tab');
+  if (!tab) return;
+  selectedRole = tab.dataset.role;
+  roleTabs.querySelectorAll('.role-tab').forEach(t => t.classList.toggle('active', t === tab));
+});
 
 [usernameInput, passwordInput].forEach(el => {
   el.addEventListener('keydown', e => {
@@ -337,6 +405,21 @@ logoutBtn.addEventListener('click', async () => {
   await apiPost('/api/logout', {});
   localStorage.removeItem('token');
   showAuth();
+});
+
+teacherLogoutBtn.addEventListener('click', async () => {
+  await apiPost('/api/logout', {});
+  localStorage.removeItem('token');
+  showAuth();
+});
+
+copyInviteBtn.addEventListener('click', () => {
+  const url = inviteUrlEl.textContent;
+  if (!url) return;
+  navigator.clipboard.writeText(url).then(() => {
+    copyInviteBtn.textContent = 'Copied!';
+    setTimeout(() => { copyInviteBtn.textContent = 'Copy'; }, 2000);
+  });
 });
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

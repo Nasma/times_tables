@@ -12,6 +12,10 @@
   <div id="auth-view" class="view">
     <h1>Times Tables Practice</h1>
     <div class="card">
+      <div class="role-tabs" id="role-tabs">
+        <button class="role-tab active" data-role="student">Student</button>
+        <button class="role-tab" data-role="teacher">Teacher</button>
+      </div>
       <div class="field">
         <label for="username">Username</label>
         <input type="text" id="username" autocomplete="username" autocapitalize="none" />
@@ -107,6 +111,27 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- Teacher view -->
+  <div id="teacher-view" class="view hidden">
+    <h1>Teacher Dashboard</h1>
+    <div class="card teacher-invite-card">
+      <div class="teacher-section-title">Invite Students</div>
+      <div id="invite-url-row" class="invite-url-row">
+        <span id="invite-url" class="invite-url"></span>
+        <button id="copy-invite-btn" class="btn-secondary copy-btn">Copy</button>
+      </div>
+      <div id="qr-container" class="qr-container"></div>
+    </div>
+    <div class="card teacher-students-card">
+      <div class="teacher-section-title">My Students</div>
+      <div id="student-list" class="student-list"></div>
+      <p id="no-students-msg" class="no-students-msg hidden">No students yet. Share the invite link above.</p>
+    </div>
+    <div class="teacher-actions">
+      <button id="teacher-logout-btn" class="btn-ghost">Log out</button>
     </div>
   </div>
 

@@ -3,12 +3,13 @@ use argon2::{
     Argon2,
 };
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect},
     routing::{get, post},
     Json, Router,
 };
+use qrcode::{render::svg, QrCode};
 use chrono::Utc;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,16 @@ struct AuthRequest {
     password: String,
 }
 
+#[derive(Deserialize)]
+struct RegisterRequest {
+    username: String,
+    password: String,
+    #[serde(default = "default_role")]
+    role: String,
+}
+
+fn default_role() -> String { "student".to_string() }
+
 #[derive(Serialize)]
 struct TokenResponse {
     token: String,
@@ -56,6 +67,31 @@ struct StateResponse {
     total: usize,
     grid: Vec<&'static str>,
     enabled_tables: Vec<u8>,
+    role: String,
+}
+
+#[derive(Serialize)]
+struct JoinInfoResponse {
+    teacher_username: String,
+}
+
+#[derive(Serialize)]
+struct TeacherInviteResponse {
+    token: String,
+    join_url: String,
+    qr_svg: String,
+}
+
+#[derive(Serialize)]
+struct StudentInfo {
+    username: String,
+    mastered: usize,
+    total: usize,
+}
+
+#[derive(Serialize)]
+struct TeacherStudentsResponse {
+    students: Vec<StudentInfo>,
 }
 
 #[derive(Deserialize)]
@@ -197,6 +233,49 @@ async fn save_user_state(
     .await
     .map_err(internal)?;
     Ok(())
+}
+
+// ── Teacher helpers ───────────────────────────────────────────────────────────
+
+async fn get_user_role(db: &SqlitePool, user_id: i64) -> Result<String, (StatusCode, String)> {
+    let row = sqlx::query("SELECT role FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_one(db)
+        .await
+        .map_err(internal)?;
+    row.try_get("role").map_err(internal)
+}
+
+async fn get_or_create_invite_token(
+    db: &SqlitePool,
+    teacher_id: i64,
+) -> Result<String, (StatusCode, String)> {
+    if let Some(row) = sqlx::query("SELECT token FROM teacher_invites WHERE teacher_id = ?")
+        .bind(teacher_id)
+        .fetch_optional(db)
+        .await
+        .map_err(internal)?
+    {
+        return row.try_get("token").map_err(internal);
+    }
+    let token = generate_token();
+    let created_at = Utc::now().to_rfc3339();
+    sqlx::query(
+        "INSERT INTO teacher_invites (teacher_id, token, created_at) VALUES (?, ?, ?)",
+    )
+    .bind(teacher_id)
+    .bind(&token)
+    .bind(&created_at)
+    .execute(db)
+    .await
+    .map_err(internal)?;
+    Ok(token)
+}
+
+fn generate_qr_svg(data: &str) -> String {
+    let code = QrCode::new(data.as_bytes())
+        .unwrap_or_else(|_| QrCode::new(b"error").unwrap());
+    code.render::<svg::Color>().min_dimensions(200, 200).build()
 }
 
 // ── Response history ──────────────────────────────────────────────────────────
@@ -431,11 +510,12 @@ async fn serve_js() -> impl IntoResponse {
 
 async fn register(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<AuthRequest>,
+    Json(req): Json<RegisterRequest>,
 ) -> AppResult<TokenResponse> {
     if req.username.trim().is_empty() || req.password.is_empty() {
         return Err(app_err(StatusCode::BAD_REQUEST, "Username and password required"));
     }
+    let role = if req.role == "teacher" { "teacher" } else { "student" };
 
     let salt = SaltString::generate(&mut OsRng);
     let password_hash = Argon2::default()
@@ -444,10 +524,11 @@ async fn register(
         .to_string();
 
     let result = sqlx::query(
-        "INSERT INTO users (username, password_hash) VALUES (?, ?) RETURNING id",
+        "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?) RETURNING id",
     )
     .bind(req.username.trim())
     .bind(&password_hash)
+    .bind(role)
     .fetch_one(&state.db)
     .await;
 
@@ -516,6 +597,7 @@ async fn get_state(
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
     let sr = load_user_data(&state.db, &state.responses_dir, user_id).await?;
+    let role = get_user_role(&state.db, user_id).await?;
     let problem = pick_problem(&sr, None);
 
     Ok(Json(StateResponse {
@@ -524,6 +606,7 @@ async fn get_state(
         total: sr.enabled_problems(),
         grid: sr.grid_status(),
         enabled_tables: sr.get_enabled_tables(),
+        role,
     }))
 }
 
@@ -582,6 +665,7 @@ async fn set_enabled_tables(
     sr.set_enabled_tables(req.enabled);
     save_user_state(&state.db, user_id, &sr).await?;
 
+    let role = get_user_role(&state.db, user_id).await?;
     let problem = pick_problem(&sr, None);
     Ok(Json(StateResponse {
         problem,
@@ -589,6 +673,7 @@ async fn set_enabled_tables(
         total: sr.enabled_problems(),
         grid: sr.grid_status(),
         enabled_tables: sr.get_enabled_tables(),
+        role,
     }))
 }
 
@@ -603,6 +688,126 @@ async fn reset_progress(
     let sr = SpacedRepetition::new();
     save_user_state(&state.db, user_id, &sr).await?;
     Ok(StatusCode::OK)
+}
+
+// ── Teacher / join handlers ───────────────────────────────────────────────────
+
+async fn get_teacher_invite(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<TeacherInviteResponse> {
+    let user_id = authenticate(&state.db, &headers)
+        .await
+        .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
+
+    if get_user_role(&state.db, user_id).await? != "teacher" {
+        return Err(app_err(StatusCode::FORBIDDEN, "Not a teacher"));
+    }
+
+    let token = get_or_create_invite_token(&state.db, user_id).await?;
+    let join_url = format!("{}/join/{}", state.base_url, token);
+    let qr_svg = generate_qr_svg(&join_url);
+
+    Ok(Json(TeacherInviteResponse { token, join_url, qr_svg }))
+}
+
+async fn get_teacher_students(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<TeacherStudentsResponse> {
+    let user_id = authenticate(&state.db, &headers)
+        .await
+        .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
+
+    if get_user_role(&state.db, user_id).await? != "teacher" {
+        return Err(app_err(StatusCode::FORBIDDEN, "Not a teacher"));
+    }
+
+    let rows = sqlx::query(
+        "SELECT u.id, u.username, p.data
+         FROM teacher_students ts
+         JOIN users u ON u.id = ts.student_id
+         LEFT JOIN progress p ON p.user_id = u.id
+         WHERE ts.teacher_id = ?
+         ORDER BY u.username",
+    )
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(internal)?;
+
+    let mut students = Vec::new();
+    for row in rows {
+        let username: String = row.try_get("username").map_err(internal)?;
+        let data: Option<String> = row.try_get("data").ok().flatten();
+        let (mastered, total) = data
+            .and_then(|d| serde_json::from_str::<SpacedRepetition>(&d).ok())
+            .map(|sr| (sr.mastered_count(), sr.enabled_problems()))
+            .unwrap_or((0, 0));
+        students.push(StudentInfo { username, mastered, total });
+    }
+
+    Ok(Json(TeacherStudentsResponse { students }))
+}
+
+async fn get_join_info(
+    State(state): State<Arc<AppState>>,
+    Path(token): Path<String>,
+) -> AppResult<JoinInfoResponse> {
+    let row = sqlx::query(
+        "SELECT u.username FROM teacher_invites ti
+         JOIN users u ON u.id = ti.teacher_id
+         WHERE ti.token = ?",
+    )
+    .bind(&token)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .ok_or_else(|| app_err(StatusCode::NOT_FOUND, "Invalid invite link"))?;
+
+    let teacher_username: String = row.try_get("username").map_err(internal)?;
+    Ok(Json(JoinInfoResponse { teacher_username }))
+}
+
+async fn accept_join(
+    State(state): State<Arc<AppState>>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let user_id = authenticate(&state.db, &headers)
+        .await
+        .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
+
+    let row = sqlx::query("SELECT teacher_id FROM teacher_invites WHERE token = ?")
+        .bind(&token)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| app_err(StatusCode::NOT_FOUND, "Invalid invite link"))?;
+
+    let teacher_id: i64 = row.try_get("teacher_id").map_err(internal)?;
+
+    if teacher_id == user_id {
+        return Err(app_err(StatusCode::BAD_REQUEST, "Cannot join your own class"));
+    }
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO teacher_students (teacher_id, student_id) VALUES (?, ?)",
+    )
+    .bind(teacher_id)
+    .bind(user_id)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
+    Ok(StatusCode::OK)
+}
+
+async fn serve_join() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        include_str!("../static/join.html"),
+    )
 }
 
 async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigResponse> {
@@ -852,6 +1057,33 @@ async fn migrate_db(pool: &SqlitePool) {
     .execute(pool)
     .await
     .expect("Could not create google_id index");
+
+    let _ = sqlx::query("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'student'")
+        .execute(pool)
+        .await;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS teacher_invites (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            teacher_id INTEGER NOT NULL REFERENCES users(id),
+            token TEXT UNIQUE NOT NULL,
+            created_at TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("Could not create teacher_invites table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS teacher_students (
+            teacher_id INTEGER NOT NULL REFERENCES users(id),
+            student_id INTEGER NOT NULL REFERENCES users(id),
+            PRIMARY KEY (teacher_id, student_id)
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("Could not create teacher_students table");
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -889,6 +1121,11 @@ async fn main() {
         .route("/api/reset", post(reset_progress))
         .route("/api/tables", post(set_enabled_tables))
         .route("/api/config", get(get_config))
+        .route("/api/teacher/invite", get(get_teacher_invite))
+        .route("/api/teacher/students", get(get_teacher_students))
+        .route("/api/join_info/:token", get(get_join_info))
+        .route("/api/join/:token", post(accept_join))
+        .route("/join/:token", get(serve_join))
         .route("/", get(serve_index))
         .route("/style.css", get(serve_css))
         .route("/app.js", get(serve_js))

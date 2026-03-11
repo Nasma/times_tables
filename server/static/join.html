@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Join Class</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="view" id="join-view">
+    <h1>Times Tables Practice</h1>
+    <div class="card">
+      <p id="teacher-label" class="join-teacher-label"></p>
+      <p id="join-status" class="join-status hidden"></p>
+
+      <!-- Logged-in section -->
+      <div id="logged-in-section" class="hidden">
+        <p id="current-user-msg" class="join-sub-msg"></p>
+        <button id="link-btn" class="btn-primary join-full-btn">Join class</button>
+        <button id="logout-link-btn" class="btn-ghost join-full-btn">Use a different account</button>
+      </div>
+
+      <!-- Auth section -->
+      <div id="auth-section" class="hidden">
+        <div class="field">
+          <label for="username">Username</label>
+          <input type="text" id="username" autocomplete="username" autocapitalize="none" />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" autocomplete="current-password" />
+        </div>
+        <div class="auth-buttons">
+          <button id="login-btn" class="btn-primary">Log in &amp; join</button>
+          <button id="register-btn" class="btn-secondary">Register &amp; join</button>
+        </div>
+      </div>
+
+      <!-- Success section -->
+      <div id="success-section" class="hidden" style="text-align:center;">
+        <p class="join-success-msg">Joined successfully!</p>
+        <a href="/" class="btn-primary join-full-btn" style="display:block;text-decoration:none;text-align:center;">Go to practice</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    'use strict';
+
+    const pathParts = window.location.pathname.split('/');
+    const token = pathParts[pathParts.length - 1];
+
+    function getAuthToken() { return localStorage.getItem('token'); }
+    function authHeaders() {
+      const t = getAuthToken();
+      return t ? { 'Authorization': `Bearer ${t}` } : {};
+    }
+    async function apiPost(path, body) {
+      return fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(body),
+      });
+    }
+
+    const teacherLabel     = document.getElementById('teacher-label');
+    const joinStatus       = document.getElementById('join-status');
+    const loggedInSection  = document.getElementById('logged-in-section');
+    const authSection      = document.getElementById('auth-section');
+    const successSection   = document.getElementById('success-section');
+    const currentUserMsg   = document.getElementById('current-user-msg');
+    const linkBtn          = document.getElementById('link-btn');
+    const logoutLinkBtn    = document.getElementById('logout-link-btn');
+    const usernameInput    = document.getElementById('username');
+    const passwordInput    = document.getElementById('password');
+    const loginBtn         = document.getElementById('login-btn');
+    const registerBtn      = document.getElementById('register-btn');
+
+    function showStatus(msg, isError) {
+      joinStatus.textContent = msg;
+      joinStatus.classList.toggle('join-status-error', isError);
+      joinStatus.classList.toggle('join-status-ok', !isError);
+      joinStatus.classList.remove('hidden');
+    }
+
+    function showSuccess() {
+      loggedInSection.classList.add('hidden');
+      authSection.classList.add('hidden');
+      successSection.classList.remove('hidden');
+      joinStatus.classList.add('hidden');
+    }
+
+    async function doJoin() {
+      const res = await fetch(`/api/join/${token}`, {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      if (res.ok) {
+        showSuccess();
+      } else {
+        const msg = await res.text();
+        showStatus(msg || 'Failed to join class.', true);
+      }
+    }
+
+    async function doAuthAndJoin(endpoint) {
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+      if (!username || !password) {
+        showStatus('Please enter username and password.', true);
+        return;
+      }
+      const body = endpoint.includes('register')
+        ? { username, password, role: 'student' }
+        : { username, password };
+      const res = await apiPost(endpoint, body);
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem('token', data.token);
+        await doJoin();
+      } else {
+        const msg = await res.text();
+        showStatus(msg || 'Authentication failed.', true);
+      }
+    }
+
+    linkBtn.addEventListener('click', doJoin);
+    logoutLinkBtn.addEventListener('click', () => {
+      localStorage.removeItem('token');
+      loggedInSection.classList.add('hidden');
+      authSection.classList.remove('hidden');
+      usernameInput.focus();
+    });
+    loginBtn.addEventListener('click', () => doAuthAndJoin('/api/login'));
+    registerBtn.addEventListener('click', () => doAuthAndJoin('/api/register'));
+
+    (async () => {
+      const res = await fetch(`/api/join_info/${token}`);
+      if (!res.ok) {
+        teacherLabel.textContent = 'Invalid or expired invite link.';
+        teacherLabel.classList.add('join-teacher-error');
+        return;
+      }
+      const data = await res.json();
+      teacherLabel.textContent = `Join ${data.teacher_username}'s class`;
+
+      if (getAuthToken()) {
+        currentUserMsg.textContent = 'You are already logged in.';
+        loggedInSection.classList.remove('hidden');
+      } else {
+        authSection.classList.remove('hidden');
+      }
+    })();
+  </script>
+</body>
+</html>

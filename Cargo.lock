@@ -3019,6 +3019,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+dependencies = [
+ "image",
+]
+
+[[package]]
 name = "quick-xml"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3089,7 +3098,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3532,6 +3541,7 @@ dependencies = [
  "axum",
  "chrono",
  "directories",
+ "qrcode",
  "rand 0.8.5",
  "reqwest",
  "serde",
@@ -4289,6 +4299,7 @@ name = "tt_core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "rand 0.8.5",
  "serde",
  "serde_json",
 ]
