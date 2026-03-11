@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tt_core::{problem::Problem, spaced_rep::SpacedRepetition};
+use tt_core::{problem::{estimate_response_time, Problem}, spaced_rep::SpacedRepetition};
+use chrono::DateTime;
 
 // ── App state ─────────────────────────────────────────────────────────────────
 
@@ -200,17 +201,119 @@ async fn save_user_state(
     Ok(())
 }
 
+// ── Response history ──────────────────────────────────────────────────────────
+
+struct ResponseRecord {
+    answered_at: DateTime<Utc>,
+    elapsed_secs: f64,
+    correct: bool,
+}
+
+async fn load_responses(
+    responses_dir: &std::path::Path,
+    user_id: i64,
+    a: u8,
+    b: u8,
+) -> Vec<ResponseRecord> {
+    let path = responses_dir
+        .join(user_id.to_string())
+        .join(format!("{}x{}.csv", a, b));
+    let content = match tokio::fs::read_to_string(&path).await {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+    content
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(4, ',');
+            let answered_at = parts.next()?.parse::<DateTime<Utc>>().ok()?;
+            let elapsed_secs: f64 = parts.next()?.parse().ok()?;
+            let _answer = parts.next()?;
+            let correct = parts.next()? == "1";
+            Some(ResponseRecord { answered_at, elapsed_secs, correct })
+        })
+        .collect()
+}
+
 // ── Problem selection ─────────────────────────────────────────────────────────
 
-fn pick_problem(sr: &SpacedRepetition, last: Option<&Problem>) -> ProblemDto {
-    let p = sr
-        .get_next_problem(last)
-        .or_else(|| sr.get_extra_practice_problem(last))
-        // If last was the only problem, ignore it and repeat
-        .or_else(|| sr.get_next_problem(None))
-        .or_else(|| sr.get_extra_practice_problem(None))
-        .unwrap_or_else(|| Problem::new(1, 1));
-    ProblemDto { a: p.a, b: p.b }
+struct ProblemData {
+    problem: Problem,
+    errors_in_last_5: u32,
+    estimated_time: f64,
+    last_asked_at: Option<DateTime<Utc>>,
+}
+
+async fn load_problem_data(
+    responses_dir: &std::path::Path,
+    user_id: i64,
+    problem: Problem,
+) -> ProblemData {
+    let records = load_responses(responses_dir, user_id, problem.a, problem.b).await;
+
+    let errors_in_last_5 = records.iter().rev().take(5).filter(|r| !r.correct).count() as u32;
+
+    let correct_times: Vec<f64> = records.iter().rev()
+        .filter(|r| r.correct)
+        .map(|r| r.elapsed_secs)
+        .collect();
+    let estimated_time = estimate_response_time(&correct_times).unwrap_or(10.0);
+
+    let last_asked_at = records.last().map(|r| r.answered_at);
+
+    ProblemData { problem, errors_in_last_5, estimated_time, last_asked_at }
+}
+
+async fn pick_problem(
+    sr: &SpacedRepetition,
+    responses_dir: &std::path::Path,
+    user_id: i64,
+    last: Option<&Problem>,
+) -> ProblemDto {
+    use rand::seq::SliceRandom;
+
+    let enabled = sr.enabled_problem_list();
+    if enabled.is_empty() {
+        return ProblemDto { a: 1, b: 1 };
+    }
+
+    let mut all_data: Vec<ProblemData> = Vec::with_capacity(enabled.len());
+    for p in enabled {
+        all_data.push(load_problem_data(responses_dir, user_id, p).await);
+    }
+
+    // Sort: most errors first, then slowest estimated time first.
+    all_data.sort_by(|a, b| {
+        b.errors_in_last_5.cmp(&a.errors_in_last_5).then(
+            b.estimated_time
+                .partial_cmp(&a.estimated_time)
+                .unwrap_or(std::cmp::Ordering::Equal),
+        )
+    });
+
+    // Candidate pool: top 9 by priority + the least-recently-asked problem.
+    let mut candidates: Vec<Problem> = all_data.iter().take(9).map(|d| d.problem).collect();
+
+    if let Some(oldest) = all_data.iter().min_by_key(|d| d.last_asked_at) {
+        if !candidates.contains(&oldest.problem) {
+            candidates.push(oldest.problem);
+        }
+    }
+
+    // Prefer not to repeat the last problem shown.
+    let pool: Vec<Problem> = if candidates.len() > 1 {
+        candidates.iter().copied().filter(|p| last.map_or(true, |l| p != l)).collect()
+    } else {
+        candidates.clone()
+    };
+    let pool = if pool.is_empty() { candidates } else { pool };
+
+    let chosen = pool
+        .choose(&mut rand::thread_rng())
+        .copied()
+        .unwrap_or(Problem::new(1, 1));
+
+    ProblemDto { a: chosen.a, b: chosen.b }
 }
 
 // ── Static file handlers ──────────────────────────────────────────────────────
@@ -322,7 +425,7 @@ async fn get_state(
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
     let sr = load_user_state(&state.db, user_id).await?;
-    let problem = pick_problem(&sr, None);
+    let problem = pick_problem(&sr, &state.responses_dir, user_id, None).await;
 
     Ok(Json(StateResponse {
         problem,
@@ -367,7 +470,7 @@ async fn submit_answer(
         file.write_all(line.as_bytes()).await.map_err(internal)?;
     }
 
-    let next = pick_problem(&sr, Some(&problem));
+    let next = pick_problem(&sr, &state.responses_dir, user_id, Some(&problem)).await;
 
     Ok(Json(AnswerResponse {
         correct,
@@ -394,7 +497,7 @@ async fn set_enabled_tables(
     sr.set_enabled_tables(req.enabled);
     save_user_state(&state.db, user_id, &sr).await?;
 
-    let problem = pick_problem(&sr, None);
+    let problem = pick_problem(&sr, &state.responses_dir, user_id, None).await;
     Ok(Json(StateResponse {
         problem,
         mastered: sr.mastered_count(),

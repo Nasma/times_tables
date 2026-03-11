@@ -112,6 +112,17 @@ impl SpacedRepetition {
         }
     }
 
+    pub fn enabled_problem_list(&self) -> Vec<Problem> {
+        let mut problems: Vec<Problem> = self
+            .stats
+            .values()
+            .filter(|s| self.is_problem_enabled(&s.problem))
+            .map(|s| s.problem)
+            .collect();
+        problems.sort_by_key(|p| (p.a, p.b));
+        problems
+    }
+
     pub fn enabled_problems(&self) -> usize {
         self.stats
             .values()
