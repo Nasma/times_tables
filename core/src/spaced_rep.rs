@@ -1,4 +1,4 @@
-use crate::problem::{generate_all_problems, Problem, ProblemStats};
+use crate::problem::{estimate_response_time, generate_all_problems, Problem, ProblemStats};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -73,28 +73,32 @@ impl SpacedRepetition {
             return None;
         }
 
-        problems.sort_by_key(|s| std::cmp::Reverse(s.errors_in_last_5()));
+        let estimated_time = |s: &ProblemStats| {
+            estimate_response_time(&s.recent_correct_times()).unwrap_or(10.0)
+        };
+        problems.sort_by(|a, b| {
+            b.errors_in_last_5().cmp(&a.errors_in_last_5()).then(
+                estimated_time(b)
+                    .partial_cmp(&estimated_time(a))
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+        });
 
-        problems.first().map(|s| s.problem)
+        use rand::seq::SliceRandom;
+        let mut pool: Vec<&ProblemStats> = problems.iter().copied().take(9).collect();
+
+        // Also include the problem least recently asked (or never asked).
+        if let Some(oldest) = problems.iter().min_by_key(|s| s.last_asked_at_secs()) {
+            if !pool.iter().any(|p| p.problem == oldest.problem) {
+                pool.push(oldest);
+            }
+        }
+
+        pool.choose(&mut rand::thread_rng()).map(|s| s.problem)
     }
 
     pub fn get_extra_practice_problem(&self, last: Option<&Problem>) -> Option<Problem> {
-        let mut enabled: Vec<_> = self
-            .stats
-            .values()
-            .filter(|s| {
-                self.is_problem_enabled(&s.problem)
-                    && last.map_or(true, |l| s.problem != *l)
-            })
-            .collect();
-
-        if enabled.is_empty() {
-            return None;
-        }
-
-        enabled.sort_by_key(|s| std::cmp::Reverse(s.errors_in_last_5()));
-
-        enabled.first().map(|s| s.problem)
+        self.get_next_problem(last)
     }
 
     pub fn get_stats(&self, problem: &Problem) -> Option<&ProblemStats> {
