@@ -73,7 +73,7 @@ impl SpacedRepetition {
             return None;
         }
 
-        problems.sort_by_key(|s| std::cmp::Reverse(s.times_wrong));
+        problems.sort_by_key(|s| std::cmp::Reverse(s.errors_in_last_5()));
 
         problems.first().map(|s| s.problem)
     }
@@ -92,7 +92,7 @@ impl SpacedRepetition {
             return None;
         }
 
-        enabled.sort_by_key(|s| std::cmp::Reverse(s.times_wrong));
+        enabled.sort_by_key(|s| std::cmp::Reverse(s.errors_in_last_5()));
 
         enabled.first().map(|s| s.problem)
     }
@@ -141,7 +141,10 @@ impl SpacedRepetition {
     }
 
     pub fn total_wrong(&self) -> u32 {
-        self.stats.values().map(|s| s.times_wrong).sum()
+        self.stats
+            .values()
+            .map(|s| s.responses.iter().filter(|r| !r.correct).count() as u32)
+            .sum()
     }
 
     /// Returns a 144-element vec (a=1..12, b=1..12) with the achievement tier of each cell.

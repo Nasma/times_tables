@@ -41,7 +41,6 @@ impl Problem {
 pub struct ProblemStats {
     pub problem: Problem,
     pub times_correct: u32,
-    pub times_wrong: u32,
     pub consecutive_correct: u32,
     /// Achievement tier: 0=not started, 1=learning, 2=solid, 3=fast, 4=mastered. Never reverts.
     #[serde(default)]
@@ -59,7 +58,6 @@ impl ProblemStats {
         Self {
             problem,
             times_correct: 0,
-            times_wrong: 0,
             consecutive_correct: 0,
             best_tier: 0,
             consecutive_fast_correct: 0,
@@ -85,7 +83,6 @@ impl ProblemStats {
                 self.consecutive_fast_correct = 0;
             }
         } else {
-            self.times_wrong += 1;
             self.consecutive_correct = 0;
             self.consecutive_fast_correct = 0;
         }
