@@ -60,23 +60,22 @@ impl SpacedRepetition {
     }
 
     pub fn get_next_problem(&self, last: Option<&Problem>) -> Option<Problem> {
-        let mut due_problems: Vec<_> = self
+        let mut problems: Vec<_> = self
             .stats
             .values()
             .filter(|s| {
-                s.is_due()
-                    && self.is_problem_enabled(&s.problem)
+                self.is_problem_enabled(&s.problem)
                     && last.map_or(true, |l| s.problem != *l)
             })
             .collect();
 
-        if due_problems.is_empty() {
+        if problems.is_empty() {
             return None;
         }
 
-        due_problems.sort_by_key(|s| std::cmp::Reverse(s.times_wrong));
+        problems.sort_by_key(|s| std::cmp::Reverse(s.times_wrong));
 
-        due_problems.first().map(|s| s.problem)
+        problems.first().map(|s| s.problem)
     }
 
     pub fn get_extra_practice_problem(&self, last: Option<&Problem>) -> Option<Problem> {
@@ -126,13 +125,6 @@ impl SpacedRepetition {
         self.stats
             .values()
             .filter(|s| self.is_problem_enabled(&s.problem) && s.is_mastered())
-            .count()
-    }
-
-    pub fn due_count(&self) -> usize {
-        self.stats
-            .values()
-            .filter(|s| self.is_problem_enabled(&s.problem) && s.is_due())
             .count()
     }
 

@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 
@@ -33,8 +32,6 @@ impl Problem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProblemStats {
     pub problem: Problem,
-    pub interval_days: f64,
-    pub next_review: DateTime<Utc>,
     pub times_correct: u32,
     pub times_wrong: u32,
     pub consecutive_correct: u32,
@@ -50,18 +47,12 @@ impl ProblemStats {
     pub fn new(problem: Problem) -> Self {
         Self {
             problem,
-            interval_days: 0.0,
-            next_review: Utc::now(),
             times_correct: 0,
             times_wrong: 0,
             consecutive_correct: 0,
             best_tier: 0,
             consecutive_fast_correct: 0,
         }
-    }
-
-    pub fn is_due(&self) -> bool {
-        Utc::now() >= self.next_review
     }
 
     pub fn is_mastered(&self) -> bool {
@@ -85,12 +76,8 @@ impl ProblemStats {
         } else {
             self.times_wrong += 1;
             self.consecutive_correct = 0;
-            self.interval_days = 0.0;
             self.consecutive_fast_correct = 0;
         }
-
-        self.next_review = Utc::now()
-            + chrono::Duration::seconds((self.interval_days * 86400.0) as i64);
 
         // Advance achievement tier — never reverts.
         // 1=learning, 2=solid, 3=fast, 4=mastered
@@ -112,12 +99,6 @@ impl ProblemStats {
         let is_fast = response_secs < 2.0;
         self.times_correct += 1;
         self.consecutive_correct += 1;
-
-        if self.interval_days < 1.0 {
-            self.interval_days = 1.0;
-        } else {
-            self.interval_days *= 2.0;
-        }
 
         if is_fast {
             self.consecutive_fast_correct += 1;

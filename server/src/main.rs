@@ -54,7 +54,6 @@ struct StateResponse {
     problem: ProblemDto,
     mastered: usize,
     total: usize,
-    due: usize,
     grid: Vec<&'static str>,
     enabled_tables: Vec<u8>,
 }
@@ -84,7 +83,6 @@ struct AnswerResponse {
     next_problem: ProblemDto,
     mastered: usize,
     total: usize,
-    due: usize,
     grid: Vec<&'static str>,
     enabled_tables: Vec<u8>,
 }
@@ -524,7 +522,6 @@ async fn get_state(
         problem,
         mastered: sr.mastered_count(),
         total: sr.enabled_problems(),
-        due: sr.due_count(),
         grid: sr.grid_status(),
         enabled_tables: sr.get_enabled_tables(),
     }))
@@ -559,7 +556,6 @@ async fn submit_answer(
         next_problem: next,
         mastered: sr.mastered_count(),
         total: sr.enabled_problems(),
-        due: sr.due_count(),
         grid: sr.grid_status(),
         enabled_tables: sr.get_enabled_tables(),
     }))
@@ -583,7 +579,6 @@ async fn set_enabled_tables(
         problem,
         mastered: sr.mastered_count(),
         total: sr.enabled_problems(),
-        due: sr.due_count(),
         grid: sr.grid_status(),
         enabled_tables: sr.get_enabled_tables(),
     }))

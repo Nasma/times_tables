@@ -218,8 +218,6 @@ impl eframe::App for TimesTablesApp {
                     self.spaced_rep.mastered_count(),
                     self.spaced_rep.enabled_problems()
                 ));
-                ui.separator();
-                ui.label(format!("Due: {}", self.spaced_rep.due_count()));
             });
 
             ui.add_space(5.0);
