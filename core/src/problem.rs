@@ -33,7 +33,6 @@ impl Problem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProblemStats {
     pub problem: Problem,
-    pub ease_factor: f64,
     pub interval_days: f64,
     pub next_review: DateTime<Utc>,
     pub times_correct: u32,
@@ -51,7 +50,6 @@ impl ProblemStats {
     pub fn new(problem: Problem) -> Self {
         Self {
             problem,
-            ease_factor: 2.5,
             interval_days: 0.0,
             next_review: Utc::now(),
             times_correct: 0,
@@ -67,7 +65,7 @@ impl ProblemStats {
     }
 
     pub fn is_mastered(&self) -> bool {
-        self.consecutive_correct >= 3 && self.ease_factor >= 2.0
+        self.consecutive_correct >= 3
     }
 
     pub fn record_answer(&mut self, correct: bool, response_secs: f64) {
@@ -88,10 +86,6 @@ impl ProblemStats {
             self.times_wrong += 1;
             self.consecutive_correct = 0;
             self.interval_days = 0.0;
-            self.ease_factor -= 0.2;
-            if self.ease_factor < 1.3 {
-                self.ease_factor = 1.3;
-            }
             self.consecutive_fast_correct = 0;
         }
 
@@ -119,26 +113,10 @@ impl ProblemStats {
         self.times_correct += 1;
         self.consecutive_correct += 1;
 
-        if self.interval_days == 0.0 {
-            self.interval_days = 1.0;
-        } else if self.interval_days < 1.0 {
+        if self.interval_days < 1.0 {
             self.interval_days = 1.0;
         } else {
-            self.interval_days *= self.ease_factor;
-        }
-
-        // Adjust ease factor based on response time
-        // Fast (< 3s): +0.15, Normal (3-8s): +0.1, Slow (> 8s): +0.05
-        let ease_bonus = if is_fast {
-            0.15
-        } else if response_secs <= 8.0 {
-            0.1
-        } else {
-            0.05
-        };
-        self.ease_factor += ease_bonus;
-        if self.ease_factor > 3.0 {
-            self.ease_factor = 3.0;
+            self.interval_days *= 2.0;
         }
 
         if is_fast {

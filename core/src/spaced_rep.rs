@@ -74,11 +74,7 @@ impl SpacedRepetition {
             return None;
         }
 
-        due_problems.sort_by(|a, b| {
-            a.ease_factor
-                .partial_cmp(&b.ease_factor)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        due_problems.sort_by_key(|s| std::cmp::Reverse(s.times_wrong));
 
         due_problems.first().map(|s| s.problem)
     }
@@ -97,11 +93,7 @@ impl SpacedRepetition {
             return None;
         }
 
-        enabled.sort_by(|a, b| {
-            a.ease_factor
-                .partial_cmp(&b.ease_factor)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        enabled.sort_by_key(|s| std::cmp::Reverse(s.times_wrong));
 
         enabled.first().map(|s| s.problem)
     }
