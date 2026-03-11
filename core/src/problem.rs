@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+pub const MAX_RESPONSES: usize = 100;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseRecord {
+    pub answered_at_secs: i64,
+    pub elapsed_secs: f64,
+    pub correct: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Problem {
@@ -41,6 +49,9 @@ pub struct ProblemStats {
     /// Consecutive fast (< 3s) correct answers for the current streak.
     #[serde(default)]
     pub consecutive_fast_correct: u32,
+    /// Full response history. Not persisted in JSON — loaded from CSV files.
+    #[serde(skip)]
+    pub responses: Vec<ResponseRecord>,
 }
 
 impl ProblemStats {
@@ -52,6 +63,7 @@ impl ProblemStats {
             consecutive_correct: 0,
             best_tier: 0,
             consecutive_fast_correct: 0,
+            responses: Vec::new(),
         }
     }
 
@@ -92,6 +104,26 @@ impl ProblemStats {
         if self.consecutive_fast_correct >= 3 {
             self.best_tier = self.best_tier.max(4);
         }
+    }
+
+    pub fn add_response(&mut self, record: ResponseRecord) {
+        self.responses.push(record);
+        let len = self.responses.len();
+        if len > MAX_RESPONSES {
+            self.responses.drain(0..len - MAX_RESPONSES);
+        }
+    }
+
+    pub fn errors_in_last_5(&self) -> u32 {
+        self.responses.iter().rev().take(5).filter(|r| !r.correct).count() as u32
+    }
+
+    pub fn recent_correct_times(&self) -> Vec<f64> {
+        self.responses.iter().rev().filter(|r| r.correct).map(|r| r.elapsed_secs).collect()
+    }
+
+    pub fn last_asked_at_secs(&self) -> Option<i64> {
+        self.responses.last().map(|r| r.answered_at_secs)
     }
 
 }

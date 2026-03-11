@@ -201,39 +201,43 @@ async fn save_user_state(
 
 // ── Response history ──────────────────────────────────────────────────────────
 
-struct ResponseRecord {
-    answered_at: DateTime<Utc>,
-    elapsed_secs: f64,
-    correct: bool,
+fn parse_csv_line(line: &str) -> Option<tt_core::problem::ResponseRecord> {
+    let mut parts = line.splitn(4, ',');
+    let answered_at_secs = parts.next()?.parse::<DateTime<Utc>>().ok()?.timestamp();
+    let elapsed_secs: f64 = parts.next()?.parse().ok()?;
+    let _answer = parts.next()?;
+    let correct = parts.next()? == "1";
+    Some(tt_core::problem::ResponseRecord { answered_at_secs, elapsed_secs, correct })
 }
 
-async fn load_responses(
+async fn load_responses_into_sr(
     responses_dir: &std::path::Path,
     user_id: i64,
-    a: u8,
-    b: u8,
-) -> Vec<ResponseRecord> {
-    let path = responses_dir
-        .join(user_id.to_string())
-        .join(format!("{}x{}.csv", a, b));
-    let content = match tokio::fs::read_to_string(&path).await {
-        Ok(s) => s,
-        Err(_) => return vec![],
-    };
-    content
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.splitn(4, ',');
-            let answered_at = parts.next()?.parse::<DateTime<Utc>>().ok()?;
-            let elapsed_secs: f64 = parts.next()?.parse().ok()?;
-            let _answer = parts.next()?;
-            let correct = parts.next()? == "1";
-            Some(ResponseRecord { answered_at, elapsed_secs, correct })
-        })
-        .collect()
+    sr: &mut SpacedRepetition,
+) {
+    for problem in generate_all_problems() {
+        let path = responses_dir
+            .join(user_id.to_string())
+            .join(format!("{}x{}.csv", problem.a, problem.b));
+        let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+        let records: Vec<_> = content.lines().filter_map(parse_csv_line).collect();
+        if let Some(stats) = sr.get_stats_mut(&problem) {
+            stats.responses = records;
+        }
+    }
 }
 
-const MAX_RESPONSE_LINES: usize = 100;
+async fn load_user_data(
+    db: &SqlitePool,
+    responses_dir: &std::path::Path,
+    user_id: i64,
+) -> Result<SpacedRepetition, (StatusCode, String)> {
+    let mut sr = load_user_state(db, user_id).await?;
+    load_responses_into_sr(responses_dir, user_id, &mut sr).await;
+    Ok(sr)
+}
+
+const MAX_RESPONSE_LINES: usize = tt_core::problem::MAX_RESPONSES;
 
 async fn append_response(
     responses_dir: &std::path::Path,
@@ -259,39 +263,7 @@ async fn append_response(
 
 // ── Problem selection ─────────────────────────────────────────────────────────
 
-struct ProblemData {
-    problem: Problem,
-    errors_in_last_5: u32,
-    estimated_time: f64,
-    last_asked_at: Option<DateTime<Utc>>,
-}
-
-async fn load_problem_data(
-    responses_dir: &std::path::Path,
-    user_id: i64,
-    problem: Problem,
-) -> ProblemData {
-    let records = load_responses(responses_dir, user_id, problem.a, problem.b).await;
-
-    let errors_in_last_5 = records.iter().rev().take(5).filter(|r| !r.correct).count() as u32;
-
-    let correct_times: Vec<f64> = records.iter().rev()
-        .filter(|r| r.correct)
-        .map(|r| r.elapsed_secs)
-        .collect();
-    let estimated_time = estimate_response_time(&correct_times).unwrap_or(10.0);
-
-    let last_asked_at = records.last().map(|r| r.answered_at);
-
-    ProblemData { problem, errors_in_last_5, estimated_time, last_asked_at }
-}
-
-async fn pick_problem(
-    sr: &SpacedRepetition,
-    responses_dir: &std::path::Path,
-    user_id: i64,
-    last: Option<&Problem>,
-) -> ProblemDto {
+fn pick_problem(sr: &SpacedRepetition, last: Option<&Problem>) -> ProblemDto {
     use rand::seq::SliceRandom;
 
     let enabled = sr.enabled_problem_list();
@@ -299,13 +271,29 @@ async fn pick_problem(
         return ProblemDto { a: 1, b: 1 };
     }
 
-    let mut all_data: Vec<ProblemData> = Vec::with_capacity(enabled.len());
-    for p in enabled {
-        all_data.push(load_problem_data(responses_dir, user_id, p).await);
+    struct Entry {
+        problem: Problem,
+        errors_in_last_5: u32,
+        estimated_time: f64,
+        last_asked_at_secs: Option<i64>,
     }
 
+    let mut all: Vec<Entry> = enabled
+        .iter()
+        .filter_map(|p| {
+            let stats = sr.get_stats(p)?;
+            let correct_times = stats.recent_correct_times();
+            Some(Entry {
+                problem: *p,
+                errors_in_last_5: stats.errors_in_last_5(),
+                estimated_time: estimate_response_time(&correct_times).unwrap_or(10.0),
+                last_asked_at_secs: stats.last_asked_at_secs(),
+            })
+        })
+        .collect();
+
     // Sort: most errors first, then slowest estimated time first.
-    all_data.sort_by(|a, b| {
+    all.sort_by(|a, b| {
         b.errors_in_last_5.cmp(&a.errors_in_last_5).then(
             b.estimated_time
                 .partial_cmp(&a.estimated_time)
@@ -314,9 +302,9 @@ async fn pick_problem(
     });
 
     // Candidate pool: top 9 by priority + the least-recently-asked problem.
-    let mut candidates: Vec<Problem> = all_data.iter().take(9).map(|d| d.problem).collect();
+    let mut candidates: Vec<Problem> = all.iter().take(9).map(|e| e.problem).collect();
 
-    if let Some(oldest) = all_data.iter().min_by_key(|d| d.last_asked_at) {
+    if let Some(oldest) = all.iter().min_by_key(|e| e.last_asked_at_secs) {
         if !candidates.contains(&oldest.problem) {
             candidates.push(oldest.problem);
         }
@@ -324,7 +312,11 @@ async fn pick_problem(
 
     // Prefer not to repeat the last problem shown.
     let pool: Vec<Problem> = if candidates.len() > 1 {
-        candidates.iter().copied().filter(|p| last.map_or(true, |l| p != l)).collect()
+        candidates
+            .iter()
+            .copied()
+            .filter(|p| last.map_or(true, |l| p != l))
+            .collect()
     } else {
         candidates.clone()
     };
@@ -369,23 +361,31 @@ async fn get_debug(
         .await
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
-    let mut entries: Vec<(ProblemData, bool)> = Vec::new();
-    for p in generate_all_problems() {
-        let records = load_responses(&state.responses_dir, user_id, p.a, p.b).await;
-        let errors_in_last_5 = records.iter().rev().take(5).filter(|r| !r.correct).count() as u32;
-        let correct_times: Vec<f64> = records.iter().rev()
-            .filter(|r| r.correct)
-            .map(|r| r.elapsed_secs)
-            .collect();
-        let raw_estimate = estimate_response_time(&correct_times);
-        let no_data = raw_estimate.is_none();
-        let estimated_time = raw_estimate.unwrap_or(10.0);
-        let last_asked_at = records.last().map(|r| r.answered_at);
-        let data = ProblemData { problem: p, errors_in_last_5, estimated_time, last_asked_at };
-        entries.push((data, no_data));
+    let sr = load_user_data(&state.db, &state.responses_dir, user_id).await?;
+
+    struct Entry {
+        problem: Problem,
+        errors_in_last_5: u32,
+        estimated_time: f64,
+        no_data: bool,
     }
 
-    entries.sort_by(|(a, _), (b, _)| {
+    let mut entries: Vec<Entry> = generate_all_problems()
+        .into_iter()
+        .map(|p| {
+            let (errors_in_last_5, estimated_time, no_data) = sr
+                .get_stats(&p)
+                .map(|s| {
+                    let correct_times = s.recent_correct_times();
+                    let raw = estimate_response_time(&correct_times);
+                    (s.errors_in_last_5(), raw.unwrap_or(10.0), raw.is_none())
+                })
+                .unwrap_or((0, 10.0, true));
+            Entry { problem: p, errors_in_last_5, estimated_time, no_data }
+        })
+        .collect();
+
+    entries.sort_by(|a, b| {
         b.errors_in_last_5.cmp(&a.errors_in_last_5).then(
             b.estimated_time
                 .partial_cmp(&a.estimated_time)
@@ -395,12 +395,12 @@ async fn get_debug(
 
     let problems = entries
         .into_iter()
-        .map(|(d, no_data)| DebugProblemEntry {
-            a: d.problem.a,
-            b: d.problem.b,
-            errors_in_last_5: d.errors_in_last_5,
-            estimated_time: d.estimated_time,
-            no_data,
+        .map(|e| DebugProblemEntry {
+            a: e.problem.a,
+            b: e.problem.b,
+            errors_in_last_5: e.errors_in_last_5,
+            estimated_time: e.estimated_time,
+            no_data: e.no_data,
         })
         .collect();
 
@@ -515,8 +515,8 @@ async fn get_state(
         .await
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
-    let sr = load_user_state(&state.db, user_id).await?;
-    let problem = pick_problem(&sr, &state.responses_dir, user_id, None).await;
+    let sr = load_user_data(&state.db, &state.responses_dir, user_id).await?;
+    let problem = pick_problem(&sr, None);
 
     Ok(Json(StateResponse {
         problem,
@@ -536,7 +536,7 @@ async fn submit_answer(
         .await
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
-    let mut sr = load_user_state(&state.db, user_id).await?;
+    let mut sr = load_user_data(&state.db, &state.responses_dir, user_id).await?;
     let problem = Problem::new(req.a, req.b);
     let correct_answer = problem.answer();
     let correct = req.answer == correct_answer;
@@ -544,11 +544,19 @@ async fn submit_answer(
     sr.record_answer(&problem, correct, req.elapsed_secs);
     save_user_state(&state.db, user_id, &sr).await?;
 
-    let answered_at = Utc::now().to_rfc3339();
-    let line = format!("{},{},{},{}", answered_at, req.elapsed_secs, req.answer, correct as u8);
+    let now = Utc::now();
+    let line = format!("{},{},{},{}", now.to_rfc3339(), req.elapsed_secs, req.answer, correct as u8);
     append_response(&state.responses_dir, user_id, req.a, req.b, &line).await?;
 
-    let next = pick_problem(&sr, &state.responses_dir, user_id, Some(&problem)).await;
+    if let Some(stats) = sr.get_stats_mut(&problem) {
+        stats.add_response(tt_core::problem::ResponseRecord {
+            answered_at_secs: now.timestamp(),
+            elapsed_secs: req.elapsed_secs,
+            correct,
+        });
+    }
+
+    let next = pick_problem(&sr, Some(&problem));
 
     Ok(Json(AnswerResponse {
         correct,
@@ -570,11 +578,11 @@ async fn set_enabled_tables(
         .await
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
-    let mut sr = load_user_state(&state.db, user_id).await?;
+    let mut sr = load_user_data(&state.db, &state.responses_dir, user_id).await?;
     sr.set_enabled_tables(req.enabled);
     save_user_state(&state.db, user_id, &sr).await?;
 
-    let problem = pick_problem(&sr, &state.responses_dir, user_id, None).await;
+    let problem = pick_problem(&sr, None);
     Ok(Json(StateResponse {
         problem,
         mastered: sr.mastered_count(),

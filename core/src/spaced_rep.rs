@@ -97,6 +97,14 @@ impl SpacedRepetition {
         enabled.first().map(|s| s.problem)
     }
 
+    pub fn get_stats(&self, problem: &Problem) -> Option<&ProblemStats> {
+        self.stats.get(&problem.key())
+    }
+
+    pub fn get_stats_mut(&mut self, problem: &Problem) -> Option<&mut ProblemStats> {
+        self.stats.get_mut(&problem.key())
+    }
+
     pub fn record_answer(&mut self, problem: &Problem, correct: bool, response_secs: f64) {
         if let Some(stats) = self.stats.get_mut(&problem.key()) {
             stats.record_answer(correct, response_secs);
