@@ -39,6 +39,7 @@ const resetYes        = $('reset-yes');
 const resetCancel     = $('reset-cancel');
 const logoutBtn       = $('logout-btn');
 const googleAuth      = $('google-auth');
+const googleBtn       = $('google-btn');
 const progressGrid    = $('progress-grid');
 const tableRowsEl     = $('table-rows');
 const roleTabs        = $('role-tabs');
@@ -329,6 +330,10 @@ roleTabs.addEventListener('click', e => {
   if (!tab) return;
   selectedRole = tab.dataset.role;
   roleTabs.querySelectorAll('.role-tab').forEach(t => t.classList.toggle('active', t === tab));
+});
+
+googleBtn.addEventListener('click', () => {
+  window.location.href = `/api/auth/google?role=${selectedRole}`;
 });
 
 [usernameInput, passwordInput].forEach(el => {

@@ -133,6 +133,12 @@ struct AnswerResponse {
 }
 
 #[derive(Deserialize)]
+struct OAuthStartParams {
+    #[serde(default = "default_role")]
+    role: String,
+}
+
+#[derive(Deserialize)]
 struct OAuthCallbackParams {
     code: Option<String>,
     state: Option<String>,
@@ -879,14 +885,17 @@ async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigResponse> 
 
 async fn google_auth_start(
     State(state): State<Arc<AppState>>,
+    Query(params): Query<OAuthStartParams>,
 ) -> Result<Redirect, (StatusCode, String)> {
     let client_id = state.google_client_id.as_ref().unwrap();
     let redirect_uri = format!("{}/api/auth/google/callback", state.base_url);
     let oauth_state = generate_token();
     let created_at = Utc::now().to_rfc3339();
+    let role = if params.role == "teacher" { "teacher" } else { "student" };
 
-    sqlx::query("INSERT INTO oauth_states (state, created_at) VALUES (?, ?)")
+    sqlx::query("INSERT INTO oauth_states (state, role, created_at) VALUES (?, ?, ?)")
         .bind(&oauth_state)
+        .bind(role)
         .bind(&created_at)
         .execute(&state.db)
         .await
@@ -918,15 +927,14 @@ async fn google_auth_inner(
     let code = params.code.ok_or_else(|| "missing_code".to_string())?;
     let oauth_state = params.state.ok_or_else(|| "missing_state".to_string())?;
 
-    let row = sqlx::query("DELETE FROM oauth_states WHERE state = ? RETURNING state")
+    let row = sqlx::query("DELETE FROM oauth_states WHERE state = ? RETURNING state, role")
         .bind(&oauth_state)
         .fetch_optional(&state.db)
         .await
         .map_err(|_| "db_error".to_string())?;
 
-    if row.is_none() {
-        return Err("invalid_state".to_string());
-    }
+    let state_row = row.ok_or_else(|| "invalid_state".to_string())?;
+    let role: String = state_row.try_get("role").unwrap_or_else(|_| "student".to_string());
 
     let redirect_uri = format!("{}/api/auth/google/callback", state.base_url);
     let client_id = state.google_client_id.as_ref().unwrap();
@@ -972,7 +980,7 @@ async fn google_auth_inner(
         .await
         .map_err(|_| "userinfo_parse_failed".to_string())?;
 
-    let user_id = find_or_create_google_user(&state.db, &user_info.id, &user_info.email)
+    let user_id = find_or_create_google_user(&state.db, &user_info.id, &user_info.email, &role)
         .await
         .map_err(|_| "db_error".to_string())?;
 
@@ -997,7 +1005,9 @@ async fn find_or_create_google_user(
     db: &SqlitePool,
     google_id: &str,
     email: &str,
+    role: &str,
 ) -> Result<i64, (StatusCode, String)> {
+    // Existing Google account — role is already set, don't change it.
     if let Some(row) = sqlx::query("SELECT id FROM users WHERE google_id = ?")
         .bind(google_id)
         .fetch_optional(db)
@@ -1007,6 +1017,7 @@ async fn find_or_create_google_user(
         return Ok(row.try_get("id").map_err(internal)?);
     }
 
+    // Email matches a password account — link Google ID, keep existing role.
     if let Some(row) = sqlx::query("SELECT id FROM users WHERE username = ?")
         .bind(email)
         .fetch_optional(db)
@@ -1023,11 +1034,13 @@ async fn find_or_create_google_user(
         return Ok(user_id);
     }
 
+    // New user — create with the requested role.
     let row = sqlx::query(
-        "INSERT INTO users (username, password_hash, google_id) VALUES (?, '', ?) RETURNING id",
+        "INSERT INTO users (username, password_hash, google_id, role) VALUES (?, '', ?, ?) RETURNING id",
     )
     .bind(email)
     .bind(google_id)
+    .bind(role)
     .fetch_one(db)
     .await
     .map_err(internal)?;
@@ -1099,12 +1112,18 @@ async fn migrate_db(pool: &SqlitePool) {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS oauth_states (
             state TEXT PRIMARY KEY,
+            role TEXT NOT NULL DEFAULT 'student',
             created_at TEXT NOT NULL
         )",
     )
     .execute(pool)
     .await
     .expect("Could not create oauth_states table");
+
+    // Add role column to existing oauth_states tables that predate this migration.
+    let _ = sqlx::query("ALTER TABLE oauth_states ADD COLUMN role TEXT NOT NULL DEFAULT 'student'")
+        .execute(pool)
+        .await;
 
     // Ignore error if column already exists
     let _ = sqlx::query("ALTER TABLE users ADD COLUMN google_id TEXT")
