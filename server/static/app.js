@@ -240,6 +240,21 @@ async function loadState() {
   }
 }
 
+function timeAgo(secs) {
+  if (secs == null) return 'never';
+  const diff = Math.floor(Date.now() / 1000) - secs;
+  if (diff < 60)    return `${diff}s ago`;
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function windowStat(correct, total) {
+  if (total === 0) return '<span class="w-none">—</span>';
+  const cls = correct === total ? 'w-perfect' : correct > 0 ? 'w-partial' : 'w-zero';
+  return `<span class="${cls}">${correct}/${total}</span>`;
+}
+
 async function loadTeacherData() {
   const [inviteRes, studentsRes] = await Promise.all([
     apiGet('/api/teacher/invite'),
@@ -262,8 +277,18 @@ async function loadTeacherData() {
       for (const s of data.students) {
         const row = document.createElement('div');
         row.className = 'student-row';
-        row.innerHTML = `<span class="student-name">${s.username}</span>
-          <span class="student-progress">${s.mastered} / ${s.total} mastered</span>`;
+        row.innerHTML = `
+          <div class="student-row-main">
+            <span class="student-name">${s.username}</span>
+            <span class="student-last">${timeAgo(s.last_answered_secs)}</span>
+            <span class="student-progress">${s.mastered}/${s.total} mastered</span>
+          </div>
+          <div class="student-row-windows">
+            <span class="window-label">5m</span>${windowStat(s.correct_5m, s.total_5m)}
+            <span class="window-label">10m</span>${windowStat(s.correct_10m, s.total_10m)}
+            <span class="window-label">30m</span>${windowStat(s.correct_30m, s.total_30m)}
+            <span class="window-label">day</span>${windowStat(s.correct_day, s.total_day)}
+          </div>`;
         studentListEl.appendChild(row);
       }
     }

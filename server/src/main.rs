@@ -87,6 +87,15 @@ struct StudentInfo {
     username: String,
     mastered: usize,
     total: usize,
+    last_answered_secs: Option<i64>,
+    correct_5m: u32,
+    total_5m: u32,
+    correct_10m: u32,
+    total_10m: u32,
+    correct_30m: u32,
+    total_30m: u32,
+    correct_day: u32,
+    total_day: u32,
 }
 
 #[derive(Serialize)]
@@ -314,6 +323,42 @@ async fn load_user_data(
     let mut sr = load_user_state(db, user_id).await?;
     load_responses_into_sr(responses_dir, user_id, &mut sr).await;
     Ok(sr)
+}
+
+async fn load_student_activity(
+    responses_dir: &std::path::Path,
+    student_id: i64,
+) -> (Option<i64>, [u32; 4], [u32; 4]) {
+    let now = Utc::now().timestamp();
+    let windows: [i64; 4] = [5 * 60, 10 * 60, 30 * 60, 24 * 3600];
+    let mut correct = [0u32; 4];
+    let mut total = [0u32; 4];
+    let mut last_answered: Option<i64> = None;
+
+    for a in 1u8..=12 {
+        for b in 1u8..=12 {
+            let path = responses_dir
+                .join(student_id.to_string())
+                .join(format!("{}x{}.csv", a, b));
+            let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+            for line in content.lines() {
+                if let Some(record) = parse_csv_line(line) {
+                    if last_answered.map_or(true, |t| record.answered_at_secs > t) {
+                        last_answered = Some(record.answered_at_secs);
+                    }
+                    let age = now - record.answered_at_secs;
+                    for (i, &window) in windows.iter().enumerate() {
+                        if age <= window {
+                            total[i] += 1;
+                            if record.correct { correct[i] += 1; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (last_answered, correct, total)
 }
 
 const MAX_RESPONSE_LINES: usize = tt_core::problem::MAX_RESPONSES;
@@ -738,13 +783,29 @@ async fn get_teacher_students(
 
     let mut students = Vec::new();
     for row in rows {
+        let student_id: i64 = row.try_get("id").map_err(internal)?;
         let username: String = row.try_get("username").map_err(internal)?;
         let data: Option<String> = row.try_get("data").ok().flatten();
         let (mastered, total) = data
             .and_then(|d| serde_json::from_str::<SpacedRepetition>(&d).ok())
             .map(|sr| (sr.mastered_count(), sr.enabled_problems()))
             .unwrap_or((0, 0));
-        students.push(StudentInfo { username, mastered, total });
+        let (last_answered_secs, correct, tot) =
+            load_student_activity(&state.responses_dir, student_id).await;
+        students.push(StudentInfo {
+            username,
+            mastered,
+            total,
+            last_answered_secs,
+            correct_5m: correct[0],
+            total_5m: tot[0],
+            correct_10m: correct[1],
+            total_10m: tot[1],
+            correct_30m: correct[2],
+            total_30m: tot[2],
+            correct_day: correct[3],
+            total_day: tot[3],
+        });
     }
 
     Ok(Json(TeacherStudentsResponse { students }))
