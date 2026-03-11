@@ -114,6 +114,25 @@ h1 {
   gap: 0.4rem;
   font-size: 0.75rem;
   color: var(--text-muted);
+  position: relative;
+  cursor: default;
+}
+
+.legend-item[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 0.5rem;
+  background: #1f2937;
+  color: #f9fafb;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 10;
 }
 
 .legend-dot {
