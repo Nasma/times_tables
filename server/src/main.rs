@@ -744,6 +744,11 @@ async fn reset_progress(
 
     let sr = SpacedRepetition::new();
     save_user_state(&state.db, user_id, &sr).await?;
+
+    // Delete all response CSV files so they aren't reloaded on next request.
+    let user_dir = state.responses_dir.join(user_id.to_string());
+    let _ = tokio::fs::remove_dir_all(&user_dir).await;
+
     Ok(StatusCode::OK)
 }
 
