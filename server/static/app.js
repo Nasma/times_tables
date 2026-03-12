@@ -454,7 +454,7 @@ copyInviteBtn.addEventListener('click', () => {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
-// Handle token/error passed back from OAuth redirect via URL hash
+// Handle token/error/choice passed back from OAuth redirect via URL hash
 let oauthError = null;
 const hash = window.location.hash;
 if (hash.startsWith('#token=')) {
@@ -463,6 +463,37 @@ if (hash.startsWith('#token=')) {
 } else if (hash.startsWith('#auth_error=')) {
   oauthError = decodeURIComponent(hash.slice('#auth_error='.length));
   history.replaceState(null, '', window.location.pathname);
+} else if (hash.startsWith('#oauth_choice=')) {
+  const p = new URLSearchParams(hash.slice(1));
+  history.replaceState(null, '', window.location.pathname);
+  const pendingToken   = p.get('oauth_choice');
+  const existingRole   = p.get('existing_role');
+  const requestedRole  = p.get('requested_role');
+  $('oauth-choice-msg').textContent =
+    `You already have a ${existingRole} account linked to this Google account.`;
+  $('oauth-create-new').textContent  = `Create a new ${requestedRole} account`;
+  $('oauth-use-existing').textContent = `Sign in with my ${existingRole} account`;
+  $('oauth-choice-modal').classList.remove('hidden');
+
+  async function completeOAuth(action) {
+    $('oauth-choice-modal').classList.add('hidden');
+    const res = await fetch('/api/auth/google/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: pendingToken, action }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      localStorage.setItem('token', data.token);
+      window.location.reload();
+    } else {
+      showAuth();
+      setAuthError('Sign-in failed. Please try again.');
+    }
+  }
+
+  $('oauth-create-new').addEventListener('click',  () => completeOAuth('create_new'));
+  $('oauth-use-existing').addEventListener('click', () => completeOAuth('use_existing'));
 }
 
 // Show Google button if server has OAuth credentials configured

@@ -133,6 +133,12 @@ struct AnswerResponse {
 }
 
 #[derive(Deserialize)]
+struct OAuthCompleteRequest {
+    token: String,
+    action: String, // "create_new" or "use_existing"
+}
+
+#[derive(Deserialize)]
 struct OAuthStartParams {
     #[serde(default = "default_role")]
     role: String,
@@ -916,10 +922,15 @@ async fn google_auth_start(
     Ok(Redirect::to(url.as_str()))
 }
 
+enum OAuthRedirect {
+    Token(String),
+    Choice { pending_token: String, existing_role: String, requested_role: String },
+}
+
 async fn google_auth_inner(
     state: Arc<AppState>,
     params: OAuthCallbackParams,
-) -> Result<String, String> {
+) -> Result<OAuthRedirect, String> {
     if let Some(err) = params.error {
         return Err(err);
     }
@@ -980,15 +991,37 @@ async fn google_auth_inner(
         .await
         .map_err(|_| "userinfo_parse_failed".to_string())?;
 
-    let user_id = find_or_create_google_user(&state.db, &user_info.id, &user_info.email, &role)
+    let oauth_result = find_or_create_google_user(&state.db, &user_info.id, &user_info.email, &role)
         .await
         .map_err(|_| "db_error".to_string())?;
 
-    let token = create_session(&state.db, user_id)
-        .await
-        .map_err(|_| "session_error".to_string())?;
+    match oauth_result {
+        OAuthUserResult::UserId(user_id) => {
+            let token = create_session(&state.db, user_id)
+                .await
+                .map_err(|_| "session_error".to_string())?;
+            Ok(OAuthRedirect::Token(token))
+        }
+        OAuthUserResult::NeedsChoice { existing_user_id, existing_role } => {
+            let pending_token = generate_token();
+            let created_at = Utc::now().to_rfc3339();
+            sqlx::query(
+                "INSERT INTO pending_oauth (token, google_id, email, requested_role, existing_user_id, created_at) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&pending_token)
+            .bind(&user_info.id)
+            .bind(&user_info.email)
+            .bind(&role)
+            .bind(existing_user_id)
+            .bind(&created_at)
+            .execute(&state.db)
+            .await
+            .map_err(|_| "db_error".to_string())?;
 
-    Ok(token)
+            Ok(OAuthRedirect::Choice { pending_token, existing_role, requested_role: role })
+        }
+    }
 }
 
 async fn google_auth_callback(
@@ -996,9 +1029,55 @@ async fn google_auth_callback(
     Query(params): Query<OAuthCallbackParams>,
 ) -> Redirect {
     match google_auth_inner(state, params).await {
-        Ok(token) => Redirect::to(&format!("/#token={}", token)),
+        Ok(OAuthRedirect::Token(token)) =>
+            Redirect::to(&format!("/#token={}", token)),
+        Ok(OAuthRedirect::Choice { pending_token, existing_role, requested_role }) =>
+            Redirect::to(&format!(
+                "/#oauth_choice={}&existing_role={}&requested_role={}",
+                pending_token, existing_role, requested_role
+            )),
         Err(msg) => Redirect::to(&format!("/#auth_error={}", msg)),
     }
+}
+
+async fn google_auth_complete(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<OAuthCompleteRequest>,
+) -> AppResult<TokenResponse> {
+    let row = sqlx::query(
+        "DELETE FROM pending_oauth WHERE token = ? \
+         RETURNING google_id, email, requested_role, existing_user_id, created_at",
+    )
+    .bind(&req.token)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(internal)?
+    .ok_or_else(|| app_err(StatusCode::BAD_REQUEST, "Invalid or expired token"))?;
+
+    let created_at: String = row.try_get("created_at").map_err(internal)?;
+    let created = created_at.parse::<DateTime<Utc>>().map_err(internal)?;
+    if (Utc::now() - created).num_seconds() > 600 {
+        return Err(app_err(StatusCode::BAD_REQUEST, "Token expired"));
+    }
+
+    let existing_user_id: i64 = row.try_get("existing_user_id").map_err(internal)?;
+
+    let user_id = if req.action == "use_existing" {
+        existing_user_id
+    } else {
+        let google_id: String = row.try_get("google_id").map_err(internal)?;
+        let email: String = row.try_get("email").map_err(internal)?;
+        let requested_role: String = row.try_get("requested_role").map_err(internal)?;
+        create_google_user_with_role(&state.db, &google_id, &email, &requested_role).await?
+    };
+
+    let token = create_session(&state.db, user_id).await?;
+    Ok(Json(TokenResponse { token }))
+}
+
+enum OAuthUserResult {
+    UserId(i64),
+    NeedsChoice { existing_user_id: i64, existing_role: String },
 }
 
 async fn find_or_create_google_user(
@@ -1006,46 +1085,91 @@ async fn find_or_create_google_user(
     google_id: &str,
     email: &str,
     role: &str,
-) -> Result<i64, (StatusCode, String)> {
-    // Existing Google account — role is already set, don't change it.
-    if let Some(row) = sqlx::query("SELECT id FROM users WHERE google_id = ?")
+) -> Result<OAuthUserResult, (StatusCode, String)> {
+    // Account with same google_id and same role — just log in.
+    if let Some(row) = sqlx::query("SELECT id FROM users WHERE google_id = ? AND role = ?")
+        .bind(google_id)
+        .bind(role)
+        .fetch_optional(db)
+        .await
+        .map_err(internal)?
+    {
+        return Ok(OAuthUserResult::UserId(row.try_get("id").map_err(internal)?));
+    }
+
+    // Account with same google_id but different role — offer a choice.
+    if let Some(row) = sqlx::query("SELECT id, role FROM users WHERE google_id = ?")
         .bind(google_id)
         .fetch_optional(db)
         .await
         .map_err(internal)?
     {
-        return Ok(row.try_get("id").map_err(internal)?);
+        let existing_user_id: i64 = row.try_get("id").map_err(internal)?;
+        let existing_role: String = row.try_get("role").map_err(internal)?;
+        return Ok(OAuthUserResult::NeedsChoice { existing_user_id, existing_role });
     }
 
     // Email matches a password account — link Google ID, keep existing role.
-    if let Some(row) = sqlx::query("SELECT id FROM users WHERE username = ?")
+    if let Some(row) = sqlx::query("SELECT id, role FROM users WHERE username = ?")
         .bind(email)
         .fetch_optional(db)
         .await
         .map_err(internal)?
     {
         let user_id: i64 = row.try_get("id").map_err(internal)?;
+        let existing_role: String = row.try_get("role").map_err(internal)?;
         sqlx::query("UPDATE users SET google_id = ? WHERE id = ?")
             .bind(google_id)
             .bind(user_id)
             .execute(db)
             .await
             .map_err(internal)?;
-        return Ok(user_id);
+        if existing_role == role {
+            return Ok(OAuthUserResult::UserId(user_id));
+        } else {
+            return Ok(OAuthUserResult::NeedsChoice { existing_user_id: user_id, existing_role });
+        }
     }
 
-    // New user — create with the requested role.
-    let row = sqlx::query(
+    // Brand new user — create with the requested role.
+    let user_id = create_google_user_with_role(db, google_id, email, role).await?;
+    Ok(OAuthUserResult::UserId(user_id))
+}
+
+/// Insert a new Google-linked user, falling back to "email (role)" if the
+/// plain email username is already taken by the user's other-role account.
+async fn create_google_user_with_role(
+    db: &SqlitePool,
+    google_id: &str,
+    email: &str,
+    role: &str,
+) -> Result<i64, (StatusCode, String)> {
+    let result = sqlx::query(
         "INSERT INTO users (username, password_hash, google_id, role) VALUES (?, '', ?, ?) RETURNING id",
     )
     .bind(email)
     .bind(google_id)
     .bind(role)
     .fetch_one(db)
-    .await
-    .map_err(internal)?;
+    .await;
 
-    Ok(row.try_get("id").map_err(internal)?)
+    match result {
+        Ok(row) => Ok(row.try_get("id").map_err(internal)?),
+        Err(e) if e.to_string().contains("UNIQUE") => {
+            let alt = format!("{} ({})", email, role);
+            let row = sqlx::query(
+                "INSERT INTO users (username, password_hash, google_id, role) VALUES (?, '', ?, ?) RETURNING id",
+            )
+            .bind(&alt)
+            .bind(google_id)
+            .bind(role)
+            .fetch_one(db)
+            .await
+            .map_err(internal)?;
+            Ok(row.try_get("id").map_err(internal)?)
+        }
+        Err(e) => Err(internal(e)),
+    }
 }
 
 // ── DB setup ──────────────────────────────────────────────────────────────────
@@ -1130,13 +1254,32 @@ async fn migrate_db(pool: &SqlitePool) {
         .execute(pool)
         .await;
 
+    // Old single-account-per-google-id index; drop so we can allow one account per role.
+    let _ = sqlx::query("DROP INDEX IF EXISTS idx_users_google_id")
+        .execute(pool)
+        .await;
+
     sqlx::query(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id \
-         ON users(google_id) WHERE google_id IS NOT NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id_role \
+         ON users(google_id, role) WHERE google_id IS NOT NULL",
     )
     .execute(pool)
     .await
-    .expect("Could not create google_id index");
+    .expect("Could not create google_id_role index");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pending_oauth (
+            token TEXT PRIMARY KEY,
+            google_id TEXT NOT NULL,
+            email TEXT NOT NULL,
+            requested_role TEXT NOT NULL,
+            existing_user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("Could not create pending_oauth table");
 
     let _ = sqlx::query("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'student'")
         .execute(pool)
@@ -1215,7 +1358,8 @@ async fn main() {
     if has_google {
         app = app
             .route("/api/auth/google", get(google_auth_start))
-            .route("/api/auth/google/callback", get(google_auth_callback));
+            .route("/api/auth/google/callback", get(google_auth_callback))
+            .route("/api/auth/google/complete", post(google_auth_complete));
     }
 
     let app = app.with_state(state);
