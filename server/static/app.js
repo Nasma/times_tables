@@ -394,6 +394,13 @@ function checkCorrection() {
 
 submitBtn.addEventListener('click', submitAnswer);
 
+function enforceNumeric(e) {
+  if (e.data !== null && !/^\d+$/.test(e.data)) e.preventDefault();
+}
+
+answerInput.addEventListener('beforeinput', enforceNumeric);
+correctionInput.addEventListener('beforeinput', enforceNumeric);
+
 answerInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') submitAnswer();
 });
