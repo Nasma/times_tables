@@ -1,3 +1,4 @@
+use crate::problem::estimate_response_time_sd;
 use crate::problem::{estimate_response_time, generate_all_problems, Problem, ProblemStats};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -73,13 +74,14 @@ impl SpacedRepetition {
             return None;
         }
 
-        let estimated_time = |s: &ProblemStats| {
-            estimate_response_time(&s.recent_correct_times()).unwrap_or(10.0)
+        let estimated_time_with_sd = |s: &ProblemStats| {
+            estimate_response_time(&s.recent_correct_times()).unwrap_or(10.0) +
+            estimate_response_time_sd(&s.recent_correct_times())
         };
         problems.sort_by(|a, b| {
             b.errors_in_last_5().cmp(&a.errors_in_last_5()).then(
-                estimated_time(b)
-                    .partial_cmp(&estimated_time(a))
+                estimated_time_with_sd(b)
+                    .partial_cmp(&estimated_time_with_sd(a))
                     .unwrap_or(std::cmp::Ordering::Equal),
             )
         });
