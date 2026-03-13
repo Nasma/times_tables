@@ -459,6 +459,15 @@ button:active { opacity: 0.85; }
   color: var(--text-muted);
 }
 
+.auth-blurb {
+  max-width: 360px;
+  margin: 1.25rem auto 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+  text-align: center;
+}
+
 /* Messages */
 .error-msg {
   color: var(--danger);
