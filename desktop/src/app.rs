@@ -126,7 +126,7 @@ impl eframe::App for TimesTablesApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(20.0);
-                ui.heading("Times Tables Practice");
+                ui.heading("Efficient Times Tables Practice");
                 ui.add_space(30.0);
 
                 match &self.current_problem {

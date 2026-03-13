@@ -1,4 +1,4 @@
-# Times Tables Practice
+# Efficient Times Tables Practice
 
 A desktop app for learning multiplication tables using spaced repetition. It tracks which facts you find hardest and focuses practice on those, so you get better faster.
 

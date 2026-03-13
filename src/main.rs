@@ -15,7 +15,7 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "Times Tables Practice",
+        "Efficient Times Tables Practice",
         options,
         Box::new(|cc| Ok(Box::new(TimesTablesApp::new(cc)))),
     )
