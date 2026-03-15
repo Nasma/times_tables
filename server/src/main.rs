@@ -422,7 +422,7 @@ fn pick_problem(sr: &SpacedRepetition, last: Option<&Problem>) -> ProblemDto {
             Some(Entry {
                 problem: *p,
                 errors_in_last_5: stats.errors_in_last_5(),
-                estimated_time: estimate_response_time(&correct_times).unwrap_or(10.0),
+                estimated_time: estimate_response_time(&correct_times),
                 last_asked_at_secs: stats.last_asked_at_secs(),
             })
         })
@@ -513,8 +513,8 @@ async fn get_debug(
                 .get_stats(&p)
                 .map(|s| {
                     let correct_times = s.recent_correct_times();
-                    let raw = estimate_response_time(&correct_times);
-                    (s.errors_in_last_5(), raw.unwrap_or(10.0), raw.is_none())
+                    let estimated = estimate_response_time(&correct_times);
+                    (s.errors_in_last_5(), estimated, correct_times.len() < 2)
                 })
                 .unwrap_or((0, 10.0, true));
             Entry { problem: p, errors_in_last_5, estimated_time, no_data }

@@ -75,7 +75,7 @@ impl SpacedRepetition {
         }
 
         let estimated_time_with_sd = |s: &ProblemStats| {
-            estimate_response_time(&s.recent_correct_times()).unwrap_or(10.0) +
+            estimate_response_time(&s.recent_correct_times()) +
             estimate_response_time_sd(&s.recent_correct_times())
         };
         problems.sort_by(|a, b| {

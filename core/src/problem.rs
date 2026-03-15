@@ -130,9 +130,11 @@ impl ProblemStats {
 ///
 /// Algorithm: take up to 5 most recent, discard the slowest, then weighted
 /// average the rest with weights [k, k-1, ..., 1] from most recent.
-pub fn estimate_response_time(recent_correct: &[f64]) -> Option<f64> {
+pub fn estimate_response_time(recent_correct: &[f64]) -> f64 {
+    const MAX: f64 = 10.0;
+
     if recent_correct.len() < 2 {
-        return None;
+        return MAX;
     }
     let candidates: Vec<f64> = recent_correct.iter().copied().take(5).collect();
 
@@ -159,7 +161,7 @@ pub fn estimate_response_time(recent_correct: &[f64]) -> Option<f64> {
         },
     );
 
-    Some(weighted_sum / total_weight)
+    f64::min(weighted_sum / total_weight, MAX)
 }
 
 /// Estimate standard deviation of response time for a problem from a list of correct
@@ -219,22 +221,22 @@ mod tests {
     use super::{estimate_response_time, estimate_response_time_sd};
 
     #[test]
-    fn test_estimate_fewer_than_2_returns_none() {
-        assert_eq!(estimate_response_time(&[]), None);
-        assert_eq!(estimate_response_time(&[1.0]), None);
+    fn test_estimate_fewer_than_2_returns_10() {
+        assert_eq!(estimate_response_time(&[]), 10.0);
+        assert_eq!(estimate_response_time(&[1.0]), 10.0);
     }
 
     #[test]
     fn test_estimate_2_correct_ditches_worst() {
         // 2 answers: ditch worst (5.0), left with 1.0 → estimate = 1.0
-        assert_eq!(estimate_response_time(&[1.0, 5.0]), Some(1.0));
+        assert_eq!(estimate_response_time(&[1.0, 5.0]), 1.0);
     }
 
     #[test]
     fn test_estimate_3_correct_weights_2_1() {
         // most recent first: [1.0, 2.0, 9.0], ditch worst (9.0) → [1.0, 2.0]
         // weighted: (2*1.0 + 1*2.0) / 3 = 4/3
-        let result = estimate_response_time(&[1.0, 2.0, 9.0]).unwrap();
+        let result = estimate_response_time(&[1.0, 2.0, 9.0]);
         assert!((result - 4.0 / 3.0).abs() < 1e-9);
     }
 
@@ -244,8 +246,15 @@ mod tests {
         // [1.0, 2.0, 3.0, 4.0, 5.0] — ignores 99.0
         // ditch worst (5.0) → [1.0, 2.0, 3.0, 4.0]
         // weights 4,3,2,1: (4*1 + 3*2 + 2*3 + 1*4) / 10 = 20/10 = 2.0
-        let result = estimate_response_time(&[1.0, 2.0, 3.0, 4.0, 5.0, 99.0]).unwrap();
+        let result = estimate_response_time(&[1.0, 2.0, 3.0, 4.0, 5.0, 99.0]);
         assert!((result - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_estimate_capped_at_10() {
+        // All slow answers — weighted avg would be 12.0, capped to 10.0
+        let result = estimate_response_time(&[12.0, 12.0, 12.0]);
+        assert_eq!(result, 10.0);
     }
 
     // ── variance tests ────────────────────────────────────────────────────────
