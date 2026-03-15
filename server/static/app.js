@@ -86,6 +86,7 @@ function showPractice() {
   authView.classList.add('hidden');
   practiceView.classList.remove('hidden');
   teacherView.classList.add('hidden');
+  answerInput.focus();
 }
 
 function showTeacher() {
