@@ -130,12 +130,17 @@ impl ProblemStats {
 ///
 /// Algorithm: take up to 5 most recent, discard the slowest, then weighted
 /// average the rest with weights [k, k-1, ..., 1] from most recent.
+/// If there's only 1, then just return that.
 pub fn estimate_response_time(recent_correct: &[f64]) -> f64 {
     const MAX: f64 = 10.0;
 
-    if recent_correct.len() < 2 {
+    if recent_correct.len() == 0 {
         return MAX;
     }
+    else if recent_correct.len() == 1 {
+        return f64::min(MAX, *recent_correct.first().unwrap())
+    }
+
     let candidates: Vec<f64> = recent_correct.iter().copied().take(5).collect();
 
     let worst_idx = candidates
