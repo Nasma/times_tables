@@ -165,12 +165,9 @@ pub fn estimate_response_time(recent_correct: &[f64]) -> Option<f64> {
 /// Estimate standard deviation of response time for a problem from a list of correct
 /// elapsed times, most recent first. Always returns a value — uses a conservative
 /// prior of 5.0 seconds when data is sparse:
-///   - 0–1 correct answers: returns 5.0
-///   - 2–4 correct answers: average of 5.0 and measured sample standard deviation
-///   - 5+ correct answers: measured sample standard deviation
 ///
 /// Like `estimate_response_time`, takes up to 5 most recent and discards the slowest
-/// before computing.
+/// before computing. Only discards the worst if there are 3 or more results.
 pub fn estimate_response_time_sd(recent_correct: &[f64]) -> f64 {
     const PRIOR: f64 = 5.0;
 
@@ -180,34 +177,31 @@ pub fn estimate_response_time_sd(recent_correct: &[f64]) -> f64 {
 
     let candidates: Vec<f64> = recent_correct.iter().copied().take(5).collect();
 
-    let worst_idx = candidates
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(i, _)| i)
-        .unwrap();
-
-    let remaining: Vec<f64> = candidates
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| *i != worst_idx)
-        .map(|(_, &v)| v)
-        .collect();
-
-    let measured = if remaining.len() < 2 {
-        0.0
+    let remaining: Vec<f64> = if candidates.len() >= 3 {
+        let worst_idx = candidates
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, _)| i)
+            .unwrap();
+        candidates
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != worst_idx)
+            .map(|(_, &v)| v)
+            .collect()
     } else {
+        candidates
+    };
+
+    let measured = {
         let mean = remaining.iter().sum::<f64>() / remaining.len() as f64;
         let variance = remaining.iter().map(|&x| (x - mean).powi(2)).sum::<f64>()
             / (remaining.len() - 1) as f64;
         variance.sqrt()
     };
 
-    if candidates.len() < 5 {
-        (PRIOR + measured) / 2.0
-    } else {
-        measured
-    }
+    f64::min(PRIOR, measured)
 }
 
 pub fn generate_all_problems() -> Vec<Problem> {
@@ -263,20 +257,19 @@ mod tests {
     }
 
     #[test]
-    fn test_variance_2_correct_blends_with_prior() {
-        // 2 correct: ditch worst (5.0) → 1 remaining → measured = 0.0
-        // blend: (5.0 + 0.0) / 2 = 2.5
+    fn test_variance_2_correct_keeps_both() {
+        // 2 results: keep both (don't ditch worst until >= 3)
+        // [1.0, 5.0]: mean=3.0, sample variance=(4+4)/1=8.0, sd=2√2
         let result = estimate_response_time_sd(&[1.0, 5.0]);
-        assert!((result - 2.5).abs() < 1e-9);
+        assert!((result - 8.0f64.sqrt()).abs() < 1e-9);
     }
 
     #[test]
-    fn test_variance_3_correct_blends_measured() {
+    fn test_variance_3_correct_ditches_worst() {
         // [1.0, 3.0, 9.0]: ditch worst (9.0) → [1.0, 3.0]
-        // sample variance: mean=2.0, sum_sq=2, var=2.0, sd=√2
-        // blend: (5.0 + √2) / 2
+        // mean=2.0, sample variance: (1+1)/1=2.0, sd=√2
         let result = estimate_response_time_sd(&[1.0, 3.0, 9.0]);
-        assert!((result - (5.0 + 2.0f64.sqrt()) / 2.0).abs() < 1e-9);
+        assert!((result - 2.0f64.sqrt()).abs() < 1e-9);
     }
 
     #[test]
