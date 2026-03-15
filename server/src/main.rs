@@ -517,7 +517,7 @@ async fn get_debug(
                     let correct_times = s.recent_correct_times();
                     let estimated = estimate_response_time(&correct_times);
                     let sd = estimate_response_time_sd(&correct_times);
-                    (s.errors_in_last_5(), estimated, sd, correct_times.len() < 2)
+                    (s.errors_in_last_5(), estimated, sd, correct_times.is_empty())
                 })
                 .unwrap_or((0, 10.0, 5.0, true));
             Entry { problem: p, errors_in_last_5, estimated_time, estimated_time_sd, no_data }
