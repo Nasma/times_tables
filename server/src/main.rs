@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tt_core::{problem::{estimate_response_time, generate_all_problems, Problem}, spaced_rep::SpacedRepetition};
+use tt_core::{problem::{estimate_response_time, estimate_response_time_sd, generate_all_problems, Problem}, spaced_rep::SpacedRepetition};
 use chrono::DateTime;
 
 // ── App state ─────────────────────────────────────────────────────────────────
@@ -474,6 +474,7 @@ struct DebugProblemEntry {
     b: u8,
     errors_in_last_5: u32,
     estimated_time: f64,
+    estimated_time_sd: f64,
     no_data: bool,
 }
 
@@ -503,21 +504,23 @@ async fn get_debug(
         problem: Problem,
         errors_in_last_5: u32,
         estimated_time: f64,
+        estimated_time_sd: f64,
         no_data: bool,
     }
 
     let mut entries: Vec<Entry> = generate_all_problems()
         .into_iter()
         .map(|p| {
-            let (errors_in_last_5, estimated_time, no_data) = sr
+            let (errors_in_last_5, estimated_time, estimated_time_sd, no_data) = sr
                 .get_stats(&p)
                 .map(|s| {
                     let correct_times = s.recent_correct_times();
                     let estimated = estimate_response_time(&correct_times);
-                    (s.errors_in_last_5(), estimated, correct_times.len() < 2)
+                    let sd = estimate_response_time_sd(&correct_times);
+                    (s.errors_in_last_5(), estimated, sd, correct_times.len() < 2)
                 })
-                .unwrap_or((0, 10.0, true));
-            Entry { problem: p, errors_in_last_5, estimated_time, no_data }
+                .unwrap_or((0, 10.0, 5.0, true));
+            Entry { problem: p, errors_in_last_5, estimated_time, estimated_time_sd, no_data }
         })
         .collect();
 
@@ -536,6 +539,7 @@ async fn get_debug(
             b: e.problem.b,
             errors_in_last_5: e.errors_in_last_5,
             estimated_time: e.estimated_time,
+            estimated_time_sd: e.estimated_time_sd,
             no_data: e.no_data,
         })
         .collect();
