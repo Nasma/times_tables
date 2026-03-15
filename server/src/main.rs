@@ -476,6 +476,7 @@ struct DebugProblemEntry {
     estimated_time: f64,
     estimated_time_sd: f64,
     no_data: bool,
+    last_5_attempts: String,
 }
 
 #[derive(Serialize)]
@@ -506,21 +507,30 @@ async fn get_debug(
         estimated_time: f64,
         estimated_time_sd: f64,
         no_data: bool,
+        last_5_attempts: String,
     }
 
     let mut entries: Vec<Entry> = generate_all_problems()
         .into_iter()
         .map(|p| {
-            let (errors_in_last_5, estimated_time, estimated_time_sd, no_data) = sr
+            let (errors_in_last_5, estimated_time, estimated_time_sd, no_data, last_5_attempts) = sr
                 .get_stats(&p)
                 .map(|s| {
                     let correct_times = s.recent_correct_times();
                     let estimated = estimate_response_time(&correct_times);
                     let sd = estimate_response_time_sd(&correct_times);
-                    (s.errors_in_last_5(), estimated, sd, correct_times.is_empty())
+                    let attempts = s.responses.iter().rev().take(5)
+                        .map(|r| if r.correct {
+                            format!("{}s", r.elapsed_secs.round() as i64)
+                        } else {
+                            "X".to_string()
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    (s.errors_in_last_5(), estimated, sd, correct_times.is_empty(), attempts)
                 })
-                .unwrap_or((0, 10.0, 5.0, true));
-            Entry { problem: p, errors_in_last_5, estimated_time, estimated_time_sd, no_data }
+                .unwrap_or((0, 10.0, 5.0, true, String::new()));
+            Entry { problem: p, errors_in_last_5, estimated_time, estimated_time_sd, no_data, last_5_attempts }
         })
         .collect();
 
@@ -541,6 +551,7 @@ async fn get_debug(
             estimated_time: e.estimated_time,
             estimated_time_sd: e.estimated_time_sd,
             no_data: e.no_data,
+            last_5_attempts: e.last_5_attempts,
         })
         .collect();
 

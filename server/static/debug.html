@@ -31,6 +31,7 @@
         <th>Est. time</th>
         <th>Est. time SD</th>
         <th>Sum</th>
+        <th>Last 5 attempts</th>
       </tr>
     </thead>
     <tbody id="tbody"></tbody>
@@ -69,7 +70,8 @@
               `<td class="${errClass}">${p.errors_in_last_5}</td>` +
               `<td class="${t.cls}">${t.text}</td>` +
               `<td class="${sd.cls}">${sd.text}</td>` +
-              `<td class="${sum.cls}">${sum.text}</td>`;
+              `<td class="${sum.cls}">${sum.text}</td>` +
+              `<td>${p.last_5_attempts || '—'}</td>`;
             tbody.appendChild(tr);
           });
           document.getElementById('status').textContent = '';
