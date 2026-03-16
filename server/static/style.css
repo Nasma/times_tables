@@ -411,6 +411,28 @@ button:active { opacity: 0.85; }
 }
 
 /* Table progress rows */
+.table-bulk-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.btn-link-small {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.8125rem;
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.btn-link-small:hover {
+  color: var(--primary-dark, var(--primary));
+  opacity: 0.8;
+}
+
 .table-rows {
   display: flex;
   flex-direction: column;

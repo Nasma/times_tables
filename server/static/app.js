@@ -42,6 +42,8 @@ const googleAuth      = $('google-auth');
 const googleBtn       = $('google-btn');
 const progressGrid    = $('progress-grid');
 const tableRowsEl     = $('table-rows');
+const selectAllTablesBtn = $('select-all-tables');
+const clearAllTablesBtn  = $('clear-all-tables');
 const roleTabs        = $('role-tabs');
 const teacherLogoutBtn = $('teacher-logout-btn');
 const copyInviteBtn   = $('copy-invite-btn');
@@ -408,6 +410,24 @@ answerInput.addEventListener('keydown', e => {
 
 correctionInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') checkCorrection();
+});
+
+// ── Table bulk actions ────────────────────────────────────────────────────────
+
+selectAllTablesBtn.addEventListener('click', async () => {
+  const res = await apiPost('/api/tables', { enabled: [1,2,3,4,5,6,7,8,9,10,11,12] });
+  if (!res.ok) return;
+  const data = await res.json();
+  state.enabledTables = data.enabled_tables;
+  renderTableRows(state);
+});
+
+clearAllTablesBtn.addEventListener('click', async () => {
+  const res = await apiPost('/api/tables', { enabled: [] });
+  if (!res.ok) return;
+  const data = await res.json();
+  state.enabledTables = data.enabled_tables;
+  renderTableRows(state);
 });
 
 // ── Reset ─────────────────────────────────────────────────────────────────────
