@@ -496,7 +496,7 @@ resetYes.addEventListener('click', async () => {
   resetConfirm.classList.add('hidden');
   resetBtn.classList.remove('hidden');
 
-  const res = await apiPost('/api/reset', {});
+  const res = await apiPost('/api/reset', { mode: state.mode });
   if (res.status === 401) {
     localStorage.removeItem('token');
     showAuth();

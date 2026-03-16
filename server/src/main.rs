@@ -838,21 +838,47 @@ async fn set_enabled_tables(
     }))
 }
 
+#[derive(Deserialize, Default)]
+struct ResetRequest {
+    #[serde(default)]
+    mode: Mode,
+}
+
 async fn reset_progress(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Json(req): Json<ResetRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let user_id = authenticate(&state.db, &headers)
         .await
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
-    save_user_state(&state.db, user_id, Mode::TimesTables, &SpacedRepetition::new()).await?;
-    save_user_state(&state.db, user_id, Mode::Addition, &SpacedRepetition::new_addition()).await?;
-    save_user_state(&state.db, user_id, Mode::Subtraction, &SpacedRepetition::new_subtraction()).await?;
+    let fresh_sr = match req.mode {
+        Mode::Addition => SpacedRepetition::new_addition(),
+        Mode::Subtraction => SpacedRepetition::new_subtraction(),
+        Mode::TimesTables => SpacedRepetition::new(),
+    };
+    save_user_state(&state.db, user_id, req.mode, &fresh_sr).await?;
 
-    // Delete all response files so they aren't reloaded on next request.
+    // Delete response files for this mode only.
     let user_dir = state.responses_dir.join(user_id.to_string());
-    let _ = tokio::fs::remove_dir_all(&user_dir).await;
+    let subdir = match req.mode {
+        Mode::Addition => "addition",
+        Mode::Subtraction => "subtraction",
+        Mode::TimesTables => "times_tables",
+    };
+    let _ = tokio::fs::remove_dir_all(user_dir.join(subdir)).await;
+    // Also remove legacy flat CSVs for times_tables resets.
+    if req.mode == Mode::TimesTables {
+        if let Ok(mut entries) = tokio::fs::read_dir(&user_dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let p = entry.path();
+                if p.extension().map_or(false, |e| e == "csv") {
+                    let _ = tokio::fs::remove_file(p).await;
+                }
+            }
+        }
+    }
 
     Ok(StatusCode::OK)
 }
