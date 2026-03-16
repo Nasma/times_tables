@@ -43,8 +43,6 @@ const googleAuth      = $('google-auth');
 const googleBtn       = $('google-btn');
 const progressGrid    = $('progress-grid');
 const tableRowsEl     = $('table-rows');
-const selectAllTablesBtn = $('select-all-tables');
-const clearAllTablesBtn  = $('clear-all-tables');
 const modeToggle         = $('mode-toggle');
 const practiceHeading    = $('practice-heading');
 const roleTabs        = $('role-tabs');
@@ -167,12 +165,6 @@ function renderTableRows(grid) {
     const row = document.createElement('div');
     row.className = 'table-row';
 
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = state.enabledTables.includes(n);
-    cb.addEventListener('change', () => onTableToggle(n, cb.checked));
-    row.appendChild(cb);
-
     const lbl = document.createElement('span');
     lbl.className = 'table-row-label';
     lbl.textContent = `${n}${opSymbol}`;
@@ -206,27 +198,6 @@ function renderTableRows(grid) {
   }
 }
 
-async function onTableToggle(table, enabled) {
-  if (enabled) {
-    state.enabledTables = [...state.enabledTables, table].sort((a, b) => a - b);
-  } else {
-    state.enabledTables = state.enabledTables.filter(t => t !== table);
-  }
-
-  const res = await apiPost('/api/tables', { enabled: state.enabledTables, mode: state.mode });
-  if (res.status === 401) {
-    localStorage.removeItem('token');
-    showAuth();
-    return;
-  }
-  if (!res.ok) return;
-
-  const data = await res.json();
-  state.enabledTables = data.enabled_tables;
-  renderGrid(data.grid);
-  renderTableRows(data.grid);
-  displayProblem(data.problem);
-}
 
 function renderGrid(grid) {
   const dim = state.mode === 'times_tables' ? 12 : 10;
@@ -445,28 +416,6 @@ correctionInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') checkCorrection();
 });
 
-// ── Table bulk actions ────────────────────────────────────────────────────────
-
-selectAllTablesBtn.addEventListener('click', async () => {
-  const all = state.mode === 'times_tables'
-    ? [1,2,3,4,5,6,7,8,9,10,11,12]
-    : [1,2,3,4,5,6,7,8,9,10];
-  const res = await apiPost('/api/tables', { enabled: all, mode: state.mode });
-  if (!res.ok) return;
-  const data = await res.json();
-  state.enabledTables = data.enabled_tables;
-  renderGrid(data.grid);
-  renderTableRows(data.grid);
-});
-
-clearAllTablesBtn.addEventListener('click', async () => {
-  const res = await apiPost('/api/tables', { enabled: [], mode: state.mode });
-  if (!res.ok) return;
-  const data = await res.json();
-  state.enabledTables = data.enabled_tables;
-  renderGrid(data.grid);
-  renderTableRows(data.grid);
-});
 
 // ── Mode toggle ───────────────────────────────────────────────────────────────
 
