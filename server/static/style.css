@@ -422,15 +422,14 @@ button:active { opacity: 0.85; }
   border: none;
   padding: 0;
   font-size: 0.8125rem;
-  color: var(--primary);
+  color: var(--accent);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .btn-link-small:hover {
-  color: var(--primary-dark, var(--primary));
-  opacity: 0.8;
+  opacity: 0.75;
 }
 
 .table-rows {
@@ -526,14 +525,14 @@ button:active { opacity: 0.85; }
 }
 
 .mode-option:has(input:checked) {
-  border-color: var(--primary);
-  background: var(--primary);
+  border-color: var(--accent);
+  background: var(--accent);
   color: #fff;
 }
 
 .mode-option:not(:has(input:checked)):hover {
-  border-color: var(--primary);
-  color: var(--primary);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* Role tabs */

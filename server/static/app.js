@@ -46,6 +46,7 @@ const tableRowsEl     = $('table-rows');
 const selectAllTablesBtn = $('select-all-tables');
 const clearAllTablesBtn  = $('clear-all-tables');
 const modeToggle         = $('mode-toggle');
+const practiceHeading    = $('practice-heading');
 const roleTabs        = $('role-tabs');
 const teacherLogoutBtn = $('teacher-logout-btn');
 const copyInviteBtn   = $('copy-invite-btn');
@@ -86,14 +87,20 @@ function showAuth() {
   usernameInput.focus();
 }
 
+function updateModeUI() {
+  modeToggle.querySelectorAll('input[name="mode"]').forEach(r => {
+    r.checked = r.value === state.mode;
+  });
+  practiceHeading.textContent = state.mode === 'addition'
+    ? 'Efficient Addition Practice'
+    : 'Efficient Times Tables Practice';
+}
+
 function showPractice() {
   authView.classList.add('hidden');
   practiceView.classList.remove('hidden');
   teacherView.classList.add('hidden');
-  // Sync radio buttons to current mode.
-  modeToggle.querySelectorAll('input[name="mode"]').forEach(r => {
-    r.checked = r.value === state.mode;
-  });
+  updateModeUI();
   answerInput.focus();
 }
 
@@ -458,6 +465,7 @@ modeToggle.addEventListener('change', async e => {
   state.mode = radio.value;
   localStorage.setItem('mode', state.mode);
   state.awaitingCorrection = false;
+  updateModeUI();
   await loadState();
 });
 
