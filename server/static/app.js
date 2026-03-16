@@ -91,9 +91,12 @@ function updateModeUI() {
   modeToggle.querySelectorAll('input[name="mode"]').forEach(r => {
     r.checked = r.value === state.mode;
   });
-  practiceHeading.textContent = state.mode === 'addition'
-    ? 'Efficient Addition Practice'
-    : 'Efficient Times Tables Practice';
+  const headings = {
+    addition:     'Efficient Addition Practice',
+    subtraction:  'Efficient Subtraction Practice',
+    times_tables: 'Efficient Times Tables Practice',
+  };
+  practiceHeading.textContent = headings[state.mode] || headings.times_tables;
 }
 
 function showPractice() {
@@ -137,8 +140,12 @@ function showCorrectionMode(userAnswer, correctAnswer, nextProblem) {
 function displayProblem(problem) {
   state.problem = problem;
   state.problemStartMs = Date.now();
-  const op = state.mode === 'addition' ? '+' : '×';
-  problemText.textContent = `${problem.a} ${op} ${problem.b} = ?`;
+  if (state.mode === 'subtraction') {
+    problemText.textContent = `${problem.a + problem.b} − ${problem.a} = ?`;
+  } else {
+    const op = state.mode === 'addition' ? '+' : '×';
+    problemText.textContent = `${problem.a} ${op} ${problem.b} = ?`;
+  }
   showNormalMode();
 }
 
@@ -146,9 +153,8 @@ function displayProblem(problem) {
 const TIER_VAL = { not_started: 0, learning: 1, solid: 2, fast: 3, mastered: 4 };
 
 function renderTableRows(grid) {
-  const isAddition = state.mode === 'addition';
-  const dim = isAddition ? 10 : 12;
-  const opSymbol = isAddition ? '+' : '×';
+  const dim = state.mode === 'times_tables' ? 12 : 10;
+  const opSymbol = state.mode === 'times_tables' ? '×' : (state.mode === 'subtraction' ? '−' : '+');
 
   tableRowsEl.innerHTML = '';
   for (let n = 1; n <= dim; n++) {
@@ -223,8 +229,7 @@ async function onTableToggle(table, enabled) {
 }
 
 function renderGrid(grid) {
-  const isAddition = state.mode === 'addition';
-  const dim = isAddition ? 10 : 12;
+  const dim = state.mode === 'times_tables' ? 12 : 10;
   progressGrid.innerHTML = '';
   progressGrid.style.setProperty('--grid-cols', dim);
   grid.forEach((status, i) => {
@@ -232,7 +237,13 @@ function renderGrid(grid) {
     const b = (i % dim) + 1;
     const cell = document.createElement('div');
     cell.className = `grid-cell ${status}`;
-    cell.title = isAddition ? `${a} + ${b} = ${a + b}` : `${a} × ${b} = ${a * b}`;
+    if (state.mode === 'subtraction') {
+      cell.title = `${a + b} − ${a} = ${b}`;
+    } else if (state.mode === 'addition') {
+      cell.title = `${a} + ${b} = ${a + b}`;
+    } else {
+      cell.title = `${a} × ${b} = ${a * b}`;
+    }
     progressGrid.appendChild(cell);
   });
 }
@@ -437,9 +448,9 @@ correctionInput.addEventListener('keydown', e => {
 // ── Table bulk actions ────────────────────────────────────────────────────────
 
 selectAllTablesBtn.addEventListener('click', async () => {
-  const all = state.mode === 'addition'
-    ? [1,2,3,4,5,6,7,8,9,10]
-    : [1,2,3,4,5,6,7,8,9,10,11,12];
+  const all = state.mode === 'times_tables'
+    ? [1,2,3,4,5,6,7,8,9,10,11,12]
+    : [1,2,3,4,5,6,7,8,9,10];
   const res = await apiPost('/api/tables', { enabled: all, mode: state.mode });
   if (!res.ok) return;
   const data = await res.json();

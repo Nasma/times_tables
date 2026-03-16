@@ -44,6 +44,10 @@ impl SpacedRepetition {
         }
     }
 
+    pub fn new_subtraction() -> Self {
+        Self::new_addition()
+    }
+
     pub fn is_problem_enabled(&self, problem: &Problem) -> bool {
         let (a, b) = problem.tables_required();
         self.enabled_tables.contains(&a) || self.enabled_tables.contains(&b)

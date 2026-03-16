@@ -27,6 +27,7 @@ enum Mode {
     #[default]
     TimesTables,
     Addition,
+    Subtraction,
 }
 
 // ── App state ─────────────────────────────────────────────────────────────────
@@ -248,6 +249,7 @@ async fn load_user_state(
 ) -> Result<SpacedRepetition, (StatusCode, String)> {
     let (table, default_sr): (&str, fn() -> SpacedRepetition) = match mode {
         Mode::Addition => ("progress_addition", SpacedRepetition::new_addition),
+        Mode::Subtraction => ("progress_subtraction", SpacedRepetition::new_subtraction),
         Mode::TimesTables => ("progress", SpacedRepetition::new),
     };
     let query = format!("SELECT data FROM {} WHERE user_id = ?", table);
@@ -275,6 +277,7 @@ async fn save_user_state(
     let data = serde_json::to_string(sr).map_err(internal)?;
     let table = match mode {
         Mode::Addition => "progress_addition",
+        Mode::Subtraction => "progress_subtraction",
         Mode::TimesTables => "progress",
     };
     let query = format!(
@@ -352,13 +355,14 @@ async fn load_responses_into_sr(
 ) {
     let user_dir = responses_dir.join(user_id.to_string());
     let problems: Vec<Problem> = match mode {
-        Mode::Addition => generate_addition_problems(),
+        Mode::Addition | Mode::Subtraction => generate_addition_problems(),
         Mode::TimesTables => generate_all_problems(),
     };
     for problem in problems {
         let content = match mode {
-            Mode::Addition => {
-                let path = user_dir.join("addition").join(format!("{}+{}.csv", problem.a, problem.b));
+            Mode::Addition | Mode::Subtraction => {
+                let subdir = if mode == Mode::Addition { "addition" } else { "subtraction" };
+                let path = user_dir.join(subdir).join(format!("{}+{}.csv", problem.a, problem.b));
                 tokio::fs::read_to_string(&path).await.unwrap_or_default()
             }
             Mode::TimesTables => {
@@ -437,6 +441,7 @@ async fn append_response(
     let user_dir = responses_dir.join(user_id.to_string());
     let (subdir, filename) = match mode {
         Mode::Addition => ("addition", format!("{}+{}.csv", a, b)),
+        Mode::Subtraction => ("subtraction", format!("{}+{}.csv", a, b)),
         Mode::TimesTables => ("times_tables", format!("{}x{}.csv", a, b)),
     };
     let subdir_path = user_dir.join(subdir);
@@ -732,6 +737,7 @@ async fn get_state(
     let problem = pick_problem(&sr, None);
     let (grid, mode_str) = match mode {
         Mode::Addition => (sr.grid_status_sized(10), "addition".to_string()),
+        Mode::Subtraction => (sr.grid_status_sized(10), "subtraction".to_string()),
         Mode::TimesTables => (sr.grid_status(), "times_tables".to_string()),
     };
 
@@ -760,6 +766,8 @@ async fn submit_answer(
     let problem = Problem::new(req.a, req.b);
     let correct_answer = match mode {
         Mode::Addition => req.a as u32 + req.b as u32,
+        // Subtraction: problem (a,b) displays as (a+b)-a=?, answer is b.
+        Mode::Subtraction => req.b as u32,
         Mode::TimesTables => problem.answer(),
     };
     let correct = req.answer == correct_answer;
@@ -782,6 +790,7 @@ async fn submit_answer(
     let next = pick_problem(&sr, Some(&problem));
     let (grid, mode_str) = match mode {
         Mode::Addition => (sr.grid_status_sized(10), "addition".to_string()),
+        Mode::Subtraction => (sr.grid_status_sized(10), "subtraction".to_string()),
         Mode::TimesTables => (sr.grid_status(), "times_tables".to_string()),
     };
 
@@ -815,6 +824,7 @@ async fn set_enabled_tables(
     let problem = pick_problem(&sr, None);
     let (grid, mode_str) = match mode {
         Mode::Addition => (sr.grid_status_sized(10), "addition".to_string()),
+        Mode::Subtraction => (sr.grid_status_sized(10), "subtraction".to_string()),
         Mode::TimesTables => (sr.grid_status(), "times_tables".to_string()),
     };
     Ok(Json(StateResponse {
@@ -838,6 +848,7 @@ async fn reset_progress(
 
     save_user_state(&state.db, user_id, Mode::TimesTables, &SpacedRepetition::new()).await?;
     save_user_state(&state.db, user_id, Mode::Addition, &SpacedRepetition::new_addition()).await?;
+    save_user_state(&state.db, user_id, Mode::Subtraction, &SpacedRepetition::new_subtraction()).await?;
 
     // Delete all response files so they aren't reloaded on next request.
     let user_dir = state.responses_dir.join(user_id.to_string());
@@ -1416,6 +1427,16 @@ async fn migrate_db(pool: &SqlitePool) {
     .execute(pool)
     .await
     .expect("Could not create progress_addition table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS progress_subtraction (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id),
+            data TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("Could not create progress_subtraction table");
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
