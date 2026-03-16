@@ -16,8 +16,18 @@ use serde::{Deserialize, Serialize};
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tt_core::{problem::{estimate_response_time, estimate_response_time_sd, generate_all_problems, Problem}, spaced_rep::SpacedRepetition};
+use tt_core::{problem::{estimate_response_time, estimate_response_time_sd, generate_addition_problems, generate_all_problems, Problem}, spaced_rep::SpacedRepetition};
 use chrono::DateTime;
+
+// ── Mode ──────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+enum Mode {
+    #[default]
+    TimesTables,
+    Addition,
+}
 
 // ── App state ─────────────────────────────────────────────────────────────────
 
@@ -68,6 +78,7 @@ struct StateResponse {
     grid: Vec<&'static str>,
     enabled_tables: Vec<u8>,
     role: String,
+    mode: String,
 }
 
 #[derive(Serialize)]
@@ -104,8 +115,16 @@ struct TeacherStudentsResponse {
 }
 
 #[derive(Deserialize)]
+struct StateQuery {
+    #[serde(default)]
+    mode: Mode,
+}
+
+#[derive(Deserialize)]
 struct SetTablesRequest {
     enabled: Vec<u8>,
+    #[serde(default)]
+    mode: Mode,
 }
 
 #[derive(Deserialize)]
@@ -115,6 +134,8 @@ struct AnswerRequest {
     answer: u32,
     #[serde(default = "default_elapsed")]
     elapsed_secs: f64,
+    #[serde(default)]
+    mode: Mode,
 }
 
 fn default_elapsed() -> f64 {
@@ -130,6 +151,7 @@ struct AnswerResponse {
     total: usize,
     grid: Vec<&'static str>,
     enabled_tables: Vec<u8>,
+    mode: String,
 }
 
 #[derive(Deserialize)]
@@ -222,8 +244,14 @@ async fn create_session(db: &SqlitePool, user_id: i64) -> Result<String, (Status
 async fn load_user_state(
     db: &SqlitePool,
     user_id: i64,
+    mode: Mode,
 ) -> Result<SpacedRepetition, (StatusCode, String)> {
-    let row = sqlx::query("SELECT data FROM progress WHERE user_id = ?")
+    let (table, default_sr): (&str, fn() -> SpacedRepetition) = match mode {
+        Mode::Addition => ("progress_addition", SpacedRepetition::new_addition),
+        Mode::TimesTables => ("progress", SpacedRepetition::new),
+    };
+    let query = format!("SELECT data FROM {} WHERE user_id = ?", table);
+    let row = sqlx::query(&query)
         .bind(user_id)
         .fetch_optional(db)
         .await
@@ -234,25 +262,31 @@ async fn load_user_state(
             let data: String = r.try_get("data").map_err(internal)?;
             serde_json::from_str(&data).map_err(internal)
         }
-        None => Ok(SpacedRepetition::new()),
+        None => Ok(default_sr()),
     }
 }
 
 async fn save_user_state(
     db: &SqlitePool,
     user_id: i64,
+    mode: Mode,
     sr: &SpacedRepetition,
 ) -> Result<(), (StatusCode, String)> {
     let data = serde_json::to_string(sr).map_err(internal)?;
-    sqlx::query(
-        "INSERT INTO progress (user_id, data) VALUES (?, ?)
-         ON CONFLICT(user_id) DO UPDATE SET data = excluded.data",
-    )
-    .bind(user_id)
-    .bind(&data)
-    .execute(db)
-    .await
-    .map_err(internal)?;
+    let table = match mode {
+        Mode::Addition => "progress_addition",
+        Mode::TimesTables => "progress",
+    };
+    let query = format!(
+        "INSERT INTO {} (user_id, data) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET data = excluded.data",
+        table
+    );
+    sqlx::query(&query)
+        .bind(user_id)
+        .bind(&data)
+        .execute(db)
+        .await
+        .map_err(internal)?;
     Ok(())
 }
 
@@ -313,13 +347,29 @@ fn parse_csv_line(line: &str) -> Option<tt_core::problem::ResponseRecord> {
 async fn load_responses_into_sr(
     responses_dir: &std::path::Path,
     user_id: i64,
+    mode: Mode,
     sr: &mut SpacedRepetition,
 ) {
-    for problem in generate_all_problems() {
-        let path = responses_dir
-            .join(user_id.to_string())
-            .join(format!("{}x{}.csv", problem.a, problem.b));
-        let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+    let user_dir = responses_dir.join(user_id.to_string());
+    let problems: Vec<Problem> = match mode {
+        Mode::Addition => generate_addition_problems(),
+        Mode::TimesTables => generate_all_problems(),
+    };
+    for problem in problems {
+        let content = match mode {
+            Mode::Addition => {
+                let path = user_dir.join("addition").join(format!("{}+{}.csv", problem.a, problem.b));
+                tokio::fs::read_to_string(&path).await.unwrap_or_default()
+            }
+            Mode::TimesTables => {
+                // Try new subfolder first, fall back to legacy flat path.
+                let new_path = user_dir.join("times_tables").join(format!("{}x{}.csv", problem.a, problem.b));
+                let legacy_path = user_dir.join(format!("{}x{}.csv", problem.a, problem.b));
+                tokio::fs::read_to_string(&new_path).await
+                    .or(tokio::fs::read_to_string(&legacy_path).await)
+                    .unwrap_or_default()
+            }
+        };
         let records: Vec<_> = content.lines().filter_map(parse_csv_line).collect();
         if let Some(stats) = sr.get_stats_mut(&problem) {
             stats.responses = records;
@@ -331,9 +381,10 @@ async fn load_user_data(
     db: &SqlitePool,
     responses_dir: &std::path::Path,
     user_id: i64,
+    mode: Mode,
 ) -> Result<SpacedRepetition, (StatusCode, String)> {
-    let mut sr = load_user_state(db, user_id).await?;
-    load_responses_into_sr(responses_dir, user_id, &mut sr).await;
+    let mut sr = load_user_state(db, user_id, mode).await?;
+    load_responses_into_sr(responses_dir, user_id, mode, &mut sr).await;
     Ok(sr)
 }
 
@@ -378,13 +429,19 @@ const MAX_RESPONSE_LINES: usize = tt_core::problem::MAX_RESPONSES;
 async fn append_response(
     responses_dir: &std::path::Path,
     user_id: i64,
+    mode: Mode,
     a: u8,
     b: u8,
     new_line: &str,
 ) -> Result<(), (StatusCode, String)> {
     let user_dir = responses_dir.join(user_id.to_string());
-    tokio::fs::create_dir_all(&user_dir).await.map_err(internal)?;
-    let file_path = user_dir.join(format!("{}x{}.csv", a, b));
+    let (subdir, filename) = match mode {
+        Mode::Addition => ("addition", format!("{}+{}.csv", a, b)),
+        Mode::TimesTables => ("times_tables", format!("{}x{}.csv", a, b)),
+    };
+    let subdir_path = user_dir.join(subdir);
+    tokio::fs::create_dir_all(&subdir_path).await.map_err(internal)?;
+    let file_path = subdir_path.join(filename);
 
     let existing = tokio::fs::read_to_string(&file_path).await.unwrap_or_default();
     let mut lines: Vec<&str> = existing.lines().collect();
@@ -499,7 +556,7 @@ async fn get_debug(
         .await
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
-    let sr = load_user_data(&state.db, &state.responses_dir, user_id).await?;
+    let sr = load_user_data(&state.db, &state.responses_dir, user_id, Mode::TimesTables).await?;
 
     struct Entry {
         problem: Problem,
@@ -662,23 +719,30 @@ async fn logout(
 
 async fn get_state(
     State(state): State<Arc<AppState>>,
+    Query(params): Query<StateQuery>,
     headers: HeaderMap,
 ) -> AppResult<StateResponse> {
     let user_id = authenticate(&state.db, &headers)
         .await
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
-    let sr = load_user_data(&state.db, &state.responses_dir, user_id).await?;
+    let mode = params.mode;
+    let sr = load_user_data(&state.db, &state.responses_dir, user_id, mode).await?;
     let role = get_user_role(&state.db, user_id).await?;
     let problem = pick_problem(&sr, None);
+    let (grid, mode_str) = match mode {
+        Mode::Addition => (sr.grid_status_sized(10), "addition".to_string()),
+        Mode::TimesTables => (sr.grid_status(), "times_tables".to_string()),
+    };
 
     Ok(Json(StateResponse {
         problem,
         mastered: sr.mastered_count(),
         total: sr.enabled_problems(),
-        grid: sr.grid_status(),
+        grid,
         enabled_tables: sr.get_enabled_tables(),
         role,
+        mode: mode_str,
     }))
 }
 
@@ -691,17 +755,21 @@ async fn submit_answer(
         .await
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
-    let mut sr = load_user_data(&state.db, &state.responses_dir, user_id).await?;
+    let mode = req.mode;
+    let mut sr = load_user_data(&state.db, &state.responses_dir, user_id, mode).await?;
     let problem = Problem::new(req.a, req.b);
-    let correct_answer = problem.answer();
+    let correct_answer = match mode {
+        Mode::Addition => req.a as u32 + req.b as u32,
+        Mode::TimesTables => problem.answer(),
+    };
     let correct = req.answer == correct_answer;
 
     sr.record_answer(&problem, correct, req.elapsed_secs);
-    save_user_state(&state.db, user_id, &sr).await?;
+    save_user_state(&state.db, user_id, mode, &sr).await?;
 
     let now = Utc::now();
     let line = format!("{},{},{},{}", now.to_rfc3339(), req.elapsed_secs, req.answer, correct as u8);
-    append_response(&state.responses_dir, user_id, req.a, req.b, &line).await?;
+    append_response(&state.responses_dir, user_id, mode, req.a, req.b, &line).await?;
 
     if let Some(stats) = sr.get_stats_mut(&problem) {
         stats.add_response(tt_core::problem::ResponseRecord {
@@ -712,6 +780,10 @@ async fn submit_answer(
     }
 
     let next = pick_problem(&sr, Some(&problem));
+    let (grid, mode_str) = match mode {
+        Mode::Addition => (sr.grid_status_sized(10), "addition".to_string()),
+        Mode::TimesTables => (sr.grid_status(), "times_tables".to_string()),
+    };
 
     Ok(Json(AnswerResponse {
         correct,
@@ -719,8 +791,9 @@ async fn submit_answer(
         next_problem: next,
         mastered: sr.mastered_count(),
         total: sr.enabled_problems(),
-        grid: sr.grid_status(),
+        grid,
         enabled_tables: sr.get_enabled_tables(),
+        mode: mode_str,
     }))
 }
 
@@ -733,19 +806,25 @@ async fn set_enabled_tables(
         .await
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
-    let mut sr = load_user_data(&state.db, &state.responses_dir, user_id).await?;
+    let mode = req.mode;
+    let mut sr = load_user_data(&state.db, &state.responses_dir, user_id, mode).await?;
     sr.set_enabled_tables(req.enabled);
-    save_user_state(&state.db, user_id, &sr).await?;
+    save_user_state(&state.db, user_id, mode, &sr).await?;
 
     let role = get_user_role(&state.db, user_id).await?;
     let problem = pick_problem(&sr, None);
+    let (grid, mode_str) = match mode {
+        Mode::Addition => (sr.grid_status_sized(10), "addition".to_string()),
+        Mode::TimesTables => (sr.grid_status(), "times_tables".to_string()),
+    };
     Ok(Json(StateResponse {
         problem,
         mastered: sr.mastered_count(),
         total: sr.enabled_problems(),
-        grid: sr.grid_status(),
+        grid,
         enabled_tables: sr.get_enabled_tables(),
         role,
+        mode: mode_str,
     }))
 }
 
@@ -757,10 +836,10 @@ async fn reset_progress(
         .await
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
-    let sr = SpacedRepetition::new();
-    save_user_state(&state.db, user_id, &sr).await?;
+    save_user_state(&state.db, user_id, Mode::TimesTables, &SpacedRepetition::new()).await?;
+    save_user_state(&state.db, user_id, Mode::Addition, &SpacedRepetition::new_addition()).await?;
 
-    // Delete all response CSV files so they aren't reloaded on next request.
+    // Delete all response files so they aren't reloaded on next request.
     let user_dir = state.responses_dir.join(user_id.to_string());
     let _ = tokio::fs::remove_dir_all(&user_dir).await;
 
@@ -1327,6 +1406,16 @@ async fn migrate_db(pool: &SqlitePool) {
     .execute(pool)
     .await
     .expect("Could not create teacher_students table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS progress_addition (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id),
+            data TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("Could not create progress_addition table");
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

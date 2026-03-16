@@ -10,6 +10,7 @@ const state = {
   problemStartMs: 0,
   enabledTables: [1,2,3,4,5,6,7,8,9,10,11,12],
   role: 'student',
+  mode: localStorage.getItem('mode') || 'times_tables',
 };
 
 let selectedRole = 'student';
@@ -44,6 +45,7 @@ const progressGrid    = $('progress-grid');
 const tableRowsEl     = $('table-rows');
 const selectAllTablesBtn = $('select-all-tables');
 const clearAllTablesBtn  = $('clear-all-tables');
+const modeToggle         = $('mode-toggle');
 const roleTabs        = $('role-tabs');
 const teacherLogoutBtn = $('teacher-logout-btn');
 const copyInviteBtn   = $('copy-invite-btn');
@@ -88,6 +90,10 @@ function showPractice() {
   authView.classList.add('hidden');
   practiceView.classList.remove('hidden');
   teacherView.classList.add('hidden');
+  // Sync radio buttons to current mode.
+  modeToggle.querySelectorAll('input[name="mode"]').forEach(r => {
+    r.checked = r.value === state.mode;
+  });
   answerInput.focus();
 }
 
@@ -124,7 +130,8 @@ function showCorrectionMode(userAnswer, correctAnswer, nextProblem) {
 function displayProblem(problem) {
   state.problem = problem;
   state.problemStartMs = Date.now();
-  problemText.textContent = `${problem.a} × ${problem.b} = ?`;
+  const op = state.mode === 'addition' ? '+' : '×';
+  problemText.textContent = `${problem.a} ${op} ${problem.b} = ?`;
   showNormalMode();
 }
 
@@ -132,9 +139,13 @@ function displayProblem(problem) {
 const TIER_VAL = { not_started: 0, learning: 1, solid: 2, fast: 3, mastered: 4 };
 
 function renderTableRows(grid) {
+  const isAddition = state.mode === 'addition';
+  const dim = isAddition ? 10 : 12;
+  const opSymbol = isAddition ? '+' : '×';
+
   tableRowsEl.innerHTML = '';
-  for (let n = 1; n <= 12; n++) {
-    const tiers = grid.slice((n - 1) * 12, n * 12).map(s => TIER_VAL[s]);
+  for (let n = 1; n <= dim; n++) {
+    const tiers = grid.slice((n - 1) * dim, n * dim).map(s => TIER_VAL[s]);
     const min = Math.min(...tiers);
     const countSolid    = tiers.filter(t => t >= 2).length;
     const countFast     = tiers.filter(t => t >= 3).length;
@@ -151,7 +162,7 @@ function renderTableRows(grid) {
 
     const lbl = document.createElement('span');
     lbl.className = 'table-row-label';
-    lbl.textContent = `${n}×`;
+    lbl.textContent = `${n}${opSymbol}`;
     row.appendChild(lbl);
 
     const milestones = [];
@@ -160,9 +171,9 @@ function renderTableRows(grid) {
     if (min >= 3) milestones.push('fast');
     if (min >= 4) milestones.push('mastered');
 
-    if (min < 2)      counterText = `${countSolid}/12 solid`;
-    else if (min < 3) counterText = `${countFast}/12 fast`;
-    else if (min < 4) counterText = `${countMastered}/12 mastered`;
+    if (min < 2)      counterText = `${countSolid}/${dim} solid`;
+    else if (min < 3) counterText = `${countFast}/${dim} fast`;
+    else if (min < 4) counterText = `${countMastered}/${dim} mastered`;
 
     for (const m of milestones) {
       const badge = document.createElement('span');
@@ -189,7 +200,7 @@ async function onTableToggle(table, enabled) {
     state.enabledTables = state.enabledTables.filter(t => t !== table);
   }
 
-  const res = await apiPost('/api/tables', { enabled: state.enabledTables });
+  const res = await apiPost('/api/tables', { enabled: state.enabledTables, mode: state.mode });
   if (res.status === 401) {
     localStorage.removeItem('token');
     showAuth();
@@ -205,13 +216,16 @@ async function onTableToggle(table, enabled) {
 }
 
 function renderGrid(grid) {
+  const isAddition = state.mode === 'addition';
+  const dim = isAddition ? 10 : 12;
   progressGrid.innerHTML = '';
+  progressGrid.style.setProperty('--grid-cols', dim);
   grid.forEach((status, i) => {
-    const a = Math.floor(i / 12) + 1;
-    const b = (i % 12) + 1;
+    const a = Math.floor(i / dim) + 1;
+    const b = (i % dim) + 1;
     const cell = document.createElement('div');
     cell.className = `grid-cell ${status}`;
-    cell.title = `${a} × ${b} = ${a * b}`;
+    cell.title = isAddition ? `${a} + ${b} = ${a + b}` : `${a} × ${b} = ${a * b}`;
     progressGrid.appendChild(cell);
   });
 }
@@ -219,7 +233,7 @@ function renderGrid(grid) {
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 async function loadState() {
-  const res = await apiGet('/api/state');
+  const res = await apiGet(`/api/state?mode=${state.mode}`);
   if (res.status === 401) {
     localStorage.removeItem('token');
     showAuth();
@@ -364,6 +378,7 @@ async function submitAnswer() {
     b: state.problem.b,
     answer,
     elapsed_secs: elapsedSecs,
+    mode: state.mode,
   });
 
   if (res.status === 401) {
@@ -415,19 +430,35 @@ correctionInput.addEventListener('keydown', e => {
 // ── Table bulk actions ────────────────────────────────────────────────────────
 
 selectAllTablesBtn.addEventListener('click', async () => {
-  const res = await apiPost('/api/tables', { enabled: [1,2,3,4,5,6,7,8,9,10,11,12] });
+  const all = state.mode === 'addition'
+    ? [1,2,3,4,5,6,7,8,9,10]
+    : [1,2,3,4,5,6,7,8,9,10,11,12];
+  const res = await apiPost('/api/tables', { enabled: all, mode: state.mode });
   if (!res.ok) return;
   const data = await res.json();
   state.enabledTables = data.enabled_tables;
-  renderTableRows(state);
+  renderGrid(data.grid);
+  renderTableRows(data.grid);
 });
 
 clearAllTablesBtn.addEventListener('click', async () => {
-  const res = await apiPost('/api/tables', { enabled: [] });
+  const res = await apiPost('/api/tables', { enabled: [], mode: state.mode });
   if (!res.ok) return;
   const data = await res.json();
   state.enabledTables = data.enabled_tables;
-  renderTableRows(state);
+  renderGrid(data.grid);
+  renderTableRows(data.grid);
+});
+
+// ── Mode toggle ───────────────────────────────────────────────────────────────
+
+modeToggle.addEventListener('change', async e => {
+  const radio = e.target.closest('input[name="mode"]');
+  if (!radio) return;
+  state.mode = radio.value;
+  localStorage.setItem('mode', state.mode);
+  state.awaitingCorrection = false;
+  await loadState();
 });
 
 // ── Reset ─────────────────────────────────────────────────────────────────────

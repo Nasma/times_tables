@@ -1,5 +1,5 @@
 use crate::problem::estimate_response_time_sd;
-use crate::problem::{estimate_response_time, generate_all_problems, Problem, ProblemStats};
+use crate::problem::{estimate_response_time, generate_addition_problems, generate_all_problems, Problem, ProblemStats};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -30,6 +30,17 @@ impl SpacedRepetition {
         Self {
             stats,
             enabled_tables: default_enabled_tables(),
+        }
+    }
+
+    pub fn new_addition() -> Self {
+        let mut stats = HashMap::new();
+        for problem in generate_addition_problems() {
+            stats.insert(problem.key(), ProblemStats::new(problem));
+        }
+        Self {
+            stats,
+            enabled_tables: (1u8..=10).collect(),
         }
     }
 
@@ -155,11 +166,11 @@ impl SpacedRepetition {
             .sum()
     }
 
-    /// Returns a 144-element vec (a=1..12, b=1..12) with the achievement tier of each cell.
-    pub fn grid_status(&self) -> Vec<&'static str> {
-        (1u8..=12)
+    /// Returns a size×size vec with the achievement tier of each cell.
+    pub fn grid_status_sized(&self, size: u8) -> Vec<&'static str> {
+        (1u8..=size)
             .flat_map(|a| {
-                (1u8..=12).map(move |b| {
+                (1u8..=size).map(move |b| {
                     let key = Problem::new(a, b).key();
                     match self.stats.get(&key).map(|s| s.best_tier) {
                         Some(4) => "mastered",
@@ -171,5 +182,10 @@ impl SpacedRepetition {
                 })
             })
             .collect()
+    }
+
+    /// Returns a 144-element vec (a=1..12, b=1..12) with the achievement tier of each cell.
+    pub fn grid_status(&self) -> Vec<&'static str> {
+        self.grid_status_sized(12)
     }
 }

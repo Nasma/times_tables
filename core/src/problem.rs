@@ -28,6 +28,10 @@ impl Problem {
         format!("{} × {} = ?", self.a, self.b)
     }
 
+    pub fn display_addition(&self) -> String {
+        format!("{} + {} = ?", self.a, self.b)
+    }
+
     pub fn key(&self) -> String {
         format!("{}x{}", self.a, self.b)
     }
@@ -215,6 +219,16 @@ pub fn generate_all_problems() -> Vec<Problem> {
     let mut problems = Vec::new();
     for a in 1..=12 {
         for b in 1..=12 {
+            problems.push(Problem::new(a, b));
+        }
+    }
+    problems
+}
+
+pub fn generate_addition_problems() -> Vec<Problem> {
+    let mut problems = Vec::new();
+    for a in 1u8..=10 {
+        for b in 1u8..=10 {
             problems.push(Problem::new(a, b));
         }
     }
