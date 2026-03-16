@@ -410,6 +410,75 @@ button:active { opacity: 0.85; }
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 
+/* Table progress rows */
+.table-bulk-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.btn-link-small {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.8125rem;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.btn-link-small:hover {
+  opacity: 0.75;
+}
+
+.table-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.table-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.table-row input[type="checkbox"] {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.table-row-label {
+  font-weight: 700;
+  min-width: 2.25rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.table-milestone {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.1rem 0.375rem;
+  border-radius: 4px;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.table-milestone.solid    { background: #2563eb; }
+.table-milestone.fast     { background: #f97316; }
+.table-milestone.mastered { background: #111827; }
+
+.table-counter {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
 
 .auth-blurb {
   max-width: 360px;
