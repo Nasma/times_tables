@@ -8,7 +8,7 @@ const state = {
   correctAnswer: null,
   pendingNextProblem: null, // next problem to show after correction
   problemStartMs: 0,
-  enabledTables: [1,2,3,4,5,6,7,8,9,10,11,12],
+
   role: 'student',
   mode: localStorage.getItem('mode') || 'times_tables',
 };
@@ -42,9 +42,7 @@ const logoutBtn       = $('logout-btn');
 const googleAuth      = $('google-auth');
 const googleBtn       = $('google-btn');
 const progressGrid    = $('progress-grid');
-const tableRowsEl     = $('table-rows');
-const selectAllTablesBtn = $('select-all-tables');
-const clearAllTablesBtn  = $('clear-all-tables');
+
 const modeToggle         = $('mode-toggle');
 const practiceHeading    = $('practice-heading');
 const roleTabs        = $('role-tabs');
@@ -152,81 +150,6 @@ function displayProblem(problem) {
 
 const TIER_VAL = { not_started: 0, learning: 1, solid: 2, fast: 3, mastered: 4 };
 
-function renderTableRows(grid) {
-  const dim = state.mode === 'times_tables' ? 12 : 10;
-  const opSymbol = state.mode === 'times_tables' ? '×' : (state.mode === 'subtraction' ? '−' : '+');
-
-  tableRowsEl.innerHTML = '';
-  for (let n = 1; n <= dim; n++) {
-    const tiers = grid.slice((n - 1) * dim, n * dim).map(s => TIER_VAL[s]);
-    const min = Math.min(...tiers);
-    const countSolid    = tiers.filter(t => t >= 2).length;
-    const countFast     = tiers.filter(t => t >= 3).length;
-    const countMastered = tiers.filter(t => t >= 4).length;
-
-    const row = document.createElement('div');
-    row.className = 'table-row';
-
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = state.enabledTables.includes(n);
-    cb.addEventListener('change', () => onTableToggle(n, cb.checked));
-    row.appendChild(cb);
-
-    const lbl = document.createElement('span');
-    lbl.className = 'table-row-label';
-    lbl.textContent = `${n}${opSymbol}`;
-    row.appendChild(lbl);
-
-    const milestones = [];
-    let counterText = '';
-    if (min >= 2) milestones.push('solid');
-    if (min >= 3) milestones.push('fast');
-    if (min >= 4) milestones.push('mastered');
-
-    if (min < 2)      counterText = `${countSolid}/${dim} solid`;
-    else if (min < 3) counterText = `${countFast}/${dim} fast`;
-    else if (min < 4) counterText = `${countMastered}/${dim} mastered`;
-
-    for (const m of milestones) {
-      const badge = document.createElement('span');
-      badge.className = `table-milestone ${m}`;
-      badge.textContent = m.charAt(0).toUpperCase() + m.slice(1);
-      row.appendChild(badge);
-    }
-
-    if (counterText) {
-      const counter = document.createElement('span');
-      counter.className = 'table-counter';
-      counter.textContent = counterText;
-      row.appendChild(counter);
-    }
-
-    tableRowsEl.appendChild(row);
-  }
-}
-
-async function onTableToggle(table, enabled) {
-  if (enabled) {
-    state.enabledTables = [...state.enabledTables, table].sort((a, b) => a - b);
-  } else {
-    state.enabledTables = state.enabledTables.filter(t => t !== table);
-  }
-
-  const res = await apiPost('/api/tables', { enabled: state.enabledTables, mode: state.mode });
-  if (res.status === 401) {
-    localStorage.removeItem('token');
-    showAuth();
-    return;
-  }
-  if (!res.ok) return;
-
-  const data = await res.json();
-  state.enabledTables = data.enabled_tables;
-  renderGrid(data.grid);
-  renderTableRows(data.grid);
-  displayProblem(data.problem);
-}
 
 function renderGrid(grid) {
   const dim = state.mode === 'times_tables' ? 12 : 10;
@@ -268,9 +191,7 @@ async function loadState() {
     showTeacher();
     await loadTeacherData();
   } else {
-    state.enabledTables = data.enabled_tables;
     renderGrid(data.grid);
-    renderTableRows(data.grid);
     displayProblem(data.problem);
     showPractice();
   }
@@ -408,9 +329,7 @@ async function submitAnswer() {
   if (!res.ok) return;
 
   const data = await res.json();
-  state.enabledTables = data.enabled_tables;
   renderGrid(data.grid);
-  renderTableRows(data.grid);
 
   if (data.correct) {
     displayProblem(data.next_problem);
@@ -445,28 +364,6 @@ correctionInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') checkCorrection();
 });
 
-// ── Table bulk actions ────────────────────────────────────────────────────────
-
-selectAllTablesBtn.addEventListener('click', async () => {
-  const all = state.mode === 'times_tables'
-    ? [1,2,3,4,5,6,7,8,9,10,11,12]
-    : [1,2,3,4,5,6,7,8,9,10];
-  const res = await apiPost('/api/tables', { enabled: all, mode: state.mode });
-  if (!res.ok) return;
-  const data = await res.json();
-  state.enabledTables = data.enabled_tables;
-  renderGrid(data.grid);
-  renderTableRows(data.grid);
-});
-
-clearAllTablesBtn.addEventListener('click', async () => {
-  const res = await apiPost('/api/tables', { enabled: [], mode: state.mode });
-  if (!res.ok) return;
-  const data = await res.json();
-  state.enabledTables = data.enabled_tables;
-  renderGrid(data.grid);
-  renderTableRows(data.grid);
-});
 
 // ── Mode toggle ───────────────────────────────────────────────────────────────
 
