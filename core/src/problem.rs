@@ -129,15 +129,16 @@ impl ProblemStats {
 
     /// Penalty-adjusted time score over the last 5 answers.
     /// Average correct time divided by fraction correct.
-    /// Returns None if there are no correct answers in the last 5.
-    pub fn correct_time(&self) -> Option<f64> {
+    /// Returns 10.0 if there are no correct answers in the last 5. Capped at 10.0.
+    pub fn correct_time(&self) -> f64 {
+        const MAX: f64 = 10.0;
         let last5: Vec<_> = self.responses.iter().rev().take(5).collect();
-        if last5.is_empty() { return None; }
+        if last5.is_empty() { return MAX; }
         let correct: Vec<f64> = last5.iter().filter(|r| r.correct).map(|r| r.elapsed_secs).collect();
-        if correct.is_empty() { return None; }
+        if correct.is_empty() { return MAX; }
         let avg_correct = correct.iter().sum::<f64>() / correct.len() as f64;
         let fraction_correct = correct.len() as f64 / last5.len() as f64;
-        Some(avg_correct / fraction_correct)
+        f64::min(MAX, avg_correct / fraction_correct)
     }
 
 }
