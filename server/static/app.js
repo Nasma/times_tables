@@ -42,6 +42,8 @@ const logoutBtn       = $('logout-btn');
 const googleAuth      = $('google-auth');
 const googleBtn       = $('google-btn');
 const progressGrid    = $('progress-grid');
+const totalTimeRow    = $('total-time-row');
+const totalTimeValue  = $('total-time-value');
 const tableRowsEl     = $('table-rows');
 const modeToggle         = $('mode-toggle');
 const practiceHeading    = $('practice-heading');
@@ -199,6 +201,15 @@ function renderTableRows(grid) {
 }
 
 
+function renderTotalTime(totalTime) {
+  if (!totalTime) { totalTimeRow.classList.add('hidden'); return; }
+  const secs = Math.round(totalTime);
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  totalTimeValue.textContent = m > 0 ? `${m}m ${s}s` : `${s}s`;
+  totalTimeRow.classList.remove('hidden');
+}
+
 function renderGrid(grid) {
   const dim = state.mode === 'times_tables' ? 12 : 10;
   progressGrid.innerHTML = '';
@@ -242,6 +253,7 @@ async function loadState() {
     state.enabledTables = data.enabled_tables;
     renderGrid(data.grid);
     renderTableRows(data.grid);
+    renderTotalTime(data.total_time);
     displayProblem(data.problem);
     showPractice();
   }
@@ -382,6 +394,7 @@ async function submitAnswer() {
   state.enabledTables = data.enabled_tables;
   renderGrid(data.grid);
   renderTableRows(data.grid);
+  renderTotalTime(data.total_time);
 
   if (data.correct) {
     displayProblem(data.next_problem);

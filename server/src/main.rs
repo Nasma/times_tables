@@ -80,6 +80,7 @@ struct StateResponse {
     enabled_tables: Vec<u8>,
     role: String,
     mode: String,
+    total_time: f64,
 }
 
 #[derive(Serialize)]
@@ -153,6 +154,7 @@ struct AnswerResponse {
     grid: Vec<&'static str>,
     enabled_tables: Vec<u8>,
     mode: String,
+    total_time: f64,
 }
 
 #[derive(Deserialize)]
@@ -749,6 +751,7 @@ async fn get_state(
         enabled_tables: sr.get_enabled_tables(),
         role,
         mode: mode_str,
+        total_time: sr.cached_total_time(),
     }))
 }
 
@@ -803,6 +806,7 @@ async fn submit_answer(
         grid,
         enabled_tables: sr.get_enabled_tables(),
         mode: mode_str,
+        total_time: sr.cached_total_time(),
     }))
 }
 

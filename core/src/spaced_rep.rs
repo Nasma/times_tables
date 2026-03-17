@@ -13,6 +13,10 @@ pub struct SpacedRepetition {
     stats: HashMap<String, ProblemStats>,
     #[serde(default = "default_enabled_tables")]
     enabled_tables: HashSet<u8>,
+    #[serde(default)]
+    total_answers: u32,
+    #[serde(default)]
+    cached_total_time: f64,
 }
 
 impl Default for SpacedRepetition {
@@ -30,6 +34,8 @@ impl SpacedRepetition {
         Self {
             stats,
             enabled_tables: default_enabled_tables(),
+            total_answers: 0,
+            cached_total_time: 0.0,
         }
     }
 
@@ -41,6 +47,8 @@ impl SpacedRepetition {
         Self {
             stats,
             enabled_tables: (1u8..=10).collect(),
+            total_answers: 0,
+            cached_total_time: 0.0,
         }
     }
 
@@ -132,6 +140,18 @@ impl SpacedRepetition {
         if let Some(stats) = self.stats.get_mut(&problem.key()) {
             stats.record_answer(correct, response_secs);
         }
+        self.total_answers += 1;
+        if self.total_answers % 50 == 0 {
+            self.recompute_total_time();
+        }
+    }
+
+    fn recompute_total_time(&mut self) {
+        self.cached_total_time = self.stats.values().map(|s| s.correct_time()).sum();
+    }
+
+    pub fn cached_total_time(&self) -> f64 {
+        self.cached_total_time
     }
 
     pub fn enabled_problem_list(&self) -> Vec<Problem> {

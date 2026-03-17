@@ -452,6 +452,25 @@ button:active { opacity: 0.85; }
   color: var(--text-muted);
 }
 
+.total-time-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 0.75rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+
+.total-time-label {
+  color: var(--text-muted);
+}
+
+.total-time-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .auth-blurb {
   max-width: 360px;
   margin: 1.25rem auto 0;
