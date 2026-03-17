@@ -127,6 +127,19 @@ impl ProblemStats {
         self.responses.last().map(|r| r.answered_at_secs)
     }
 
+    /// Penalty-adjusted time score over the last 5 answers.
+    /// Average correct time divided by fraction correct.
+    /// Returns None if there are no correct answers in the last 5.
+    pub fn correct_time(&self) -> Option<f64> {
+        let last5: Vec<_> = self.responses.iter().rev().take(5).collect();
+        if last5.is_empty() { return None; }
+        let correct: Vec<f64> = last5.iter().filter(|r| r.correct).map(|r| r.elapsed_secs).collect();
+        if correct.is_empty() { return None; }
+        let avg_correct = correct.iter().sum::<f64>() / correct.len() as f64;
+        let fraction_correct = correct.len() as f64 / last5.len() as f64;
+        Some(avg_correct / fraction_correct)
+    }
+
 }
 
 /// Estimate response time for a problem from a list of correct elapsed times,
