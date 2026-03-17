@@ -839,6 +839,7 @@ async fn set_enabled_tables(
         enabled_tables: sr.get_enabled_tables(),
         role,
         mode: mode_str,
+        total_time: sr.cached_total_time(),
     }))
 }
 
