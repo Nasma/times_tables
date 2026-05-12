@@ -466,9 +466,119 @@ button:active { opacity: 0.85; }
   color: var(--text-muted);
 }
 
+.total-time-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+}
+
 .total-time-value {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.total-time-next {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* ── Race mode ───────────────────────────────────────────────────────────── */
+
+body.race-active {
+  background-color: #fff0f0;
+}
+
+.race-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: rgba(180, 0, 0, 0.07);
+  border: 1px solid rgba(180, 0, 0, 0.2);
+  border-radius: 10px;
+  padding: 0.5rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.race-mode-badge {
+  font-weight: 700;
+  color: #b00;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.race-timer {
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #b00;
+  flex: 1;
+  text-align: center;
+}
+
+.race-progress {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.btn-ghost-small {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.btn-ghost-small:hover {
+  background: var(--surface);
+}
+
+.race-section {
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.race-last-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.875rem;
+}
+
+.race-label {
+  color: var(--text-muted);
+}
+
+.race-last-time {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-race {
+  background: #b00;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: center;
+}
+
+.btn-race:hover {
+  background: #900;
 }
 
 .auth-blurb {

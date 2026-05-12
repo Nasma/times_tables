@@ -66,6 +66,14 @@
 
       <!-- Left: problem + stats + actions -->
       <div class="practice-left">
+        <!-- Race mode header bar -->
+        <div id="race-info" class="race-info hidden">
+          <span class="race-mode-badge">Race Mode</span>
+          <span id="race-timer" class="race-timer">0.0</span>
+          <span id="race-progress-text" class="race-progress"></span>
+          <button id="race-cancel-btn" class="btn-ghost-small">Cancel</button>
+        </div>
+
         <div class="card problem-card">
           <div id="problem-text" class="problem-text">7 × 8 = ?</div>
 
@@ -118,6 +126,13 @@
               <span id="total-time-value" class="total-time-value"></span>
               <span id="total-time-next" class="total-time-next"></span>
             </span>
+          </div>
+          <div class="race-section">
+            <div class="race-last-row">
+              <span class="race-label">Last race:</span>
+              <span id="race-last-time" class="race-last-time">—</span>
+            </div>
+            <button id="start-race-btn" class="btn-race">Start New Race</button>
           </div>
           <div class="grid-title">Tables</div>
           <div id="table-rows" class="table-rows"></div>

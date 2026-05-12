@@ -11,6 +11,14 @@ const state = {
   enabledTables: [1,2,3,4,5,6,7,8,9,10,11,12],
   role: 'student',
   mode: localStorage.getItem('mode') || 'times_tables',
+  race: {
+    active: false,
+    queue: [],
+    currentProblem: null,
+    totalQuestions: 0,
+    startMs: 0,
+    timerInterval: null,
+  },
 };
 
 let selectedRole = 'student';
@@ -44,7 +52,14 @@ const googleBtn       = $('google-btn');
 const progressGrid    = $('progress-grid');
 const totalTimeRow    = $('total-time-row');
 const totalTimeValue  = $('total-time-value');
+const totalTimeNext   = $('total-time-next');
 const tableRowsEl     = $('table-rows');
+const raceInfoEl         = $('race-info');
+const raceTimerEl        = $('race-timer');
+const raceProgressEl     = $('race-progress-text');
+const raceCancelBtn      = $('race-cancel-btn');
+const startRaceBtn       = $('start-race-btn');
+const raceLastTimeEl     = $('race-last-time');
 const modeToggle         = $('mode-toggle');
 const practiceHeading    = $('practice-heading');
 const roleTabs        = $('role-tabs');
@@ -201,13 +216,102 @@ function renderTableRows(grid) {
 }
 
 
-function renderTotalTime(totalTime) {
-  if (!totalTime) { totalTimeRow.classList.add('hidden'); return; }
+function renderTotalTime(totalTime, totalAnswers) {
   const secs = Math.round(totalTime);
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   totalTimeValue.textContent = m > 0 ? `${m}m ${s}s` : `${s}s`;
-  totalTimeRow.classList.remove('hidden');
+  const answeredInBlock = totalAnswers % 50;
+  totalTimeNext.textContent = `Next update ${answeredInBlock}/50`;
+}
+
+// ── Race mode ─────────────────────────────────────────────────────────────────
+
+function formatRaceTime(ms) {
+  const tenths = Math.floor(ms / 100) % 10;
+  const secs   = Math.floor(ms / 1000) % 60;
+  const mins   = Math.floor(ms / 60000);
+  return mins > 0
+    ? `${mins}:${String(secs).padStart(2, '0')}.${tenths}`
+    : `${secs}.${tenths}`;
+}
+
+function renderLastRaceTime() {
+  const saved = localStorage.getItem(`lastRace_${state.mode}`);
+  raceLastTimeEl.textContent = saved ? formatRaceTime(parseInt(saved, 10)) : '—';
+}
+
+function buildRaceQueue() {
+  const dim    = state.mode === 'times_tables' ? 12 : 10;
+  const tables = new Set(state.enabledTables);
+  const problems = [];
+  for (let a = 1; a <= dim; a++) {
+    for (let b = 1; b <= dim; b++) {
+      if (tables.has(a) && tables.has(b)) problems.push({ a, b });
+    }
+  }
+  // Fisher-Yates shuffle
+  for (let i = problems.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [problems[i], problems[j]] = [problems[j], problems[i]];
+  }
+  return problems;
+}
+
+function startRace() {
+  state.race.queue         = buildRaceQueue();
+  state.race.totalQuestions = state.race.queue.length;
+  state.race.active        = true;
+  state.race.startMs       = Date.now();
+  state.awaitingCorrection = false;
+
+  document.body.classList.add('race-active');
+  practiceHeading.textContent = 'Race Mode';
+  raceInfoEl.classList.remove('hidden');
+
+  state.race.timerInterval = setInterval(() => {
+    const elapsed = Date.now() - state.race.startMs;
+    raceTimerEl.textContent = formatRaceTime(elapsed);
+    const done = state.race.totalQuestions - state.race.queue.length;
+    raceProgressEl.textContent = `${done} / ${state.race.totalQuestions}`;
+  }, 100);
+
+  nextRaceProblem();
+}
+
+function cancelRace() {
+  clearInterval(state.race.timerInterval);
+  state.race.active = false;
+  state.race.queue  = [];
+  document.body.classList.remove('race-active');
+  raceInfoEl.classList.add('hidden');
+  updateModeUI();
+  loadState();
+}
+
+async function finishRace() {
+  const elapsed = Date.now() - state.race.startMs;
+  clearInterval(state.race.timerInterval);
+  state.race.active = false;
+  state.race.queue  = [];
+
+  localStorage.setItem(`lastRace_${state.mode}`, elapsed);
+
+  document.body.classList.remove('race-active');
+  raceInfoEl.classList.add('hidden');
+  updateModeUI();
+  renderLastRaceTime();
+
+  await loadState();
+}
+
+function nextRaceProblem() {
+  if (state.race.queue.length === 0) {
+    finishRace();
+    return;
+  }
+  state.race.currentProblem = state.race.queue.shift();
+  displayProblem(state.race.currentProblem);
 }
 
 function renderGrid(grid) {
@@ -253,7 +357,8 @@ async function loadState() {
     state.enabledTables = data.enabled_tables;
     renderGrid(data.grid);
     renderTableRows(data.grid);
-    renderTotalTime(data.total_time);
+    renderTotalTime(data.total_time, data.total_answers);
+    renderLastRaceTime();
     displayProblem(data.problem);
     showPractice();
   }
@@ -394,20 +499,52 @@ async function submitAnswer() {
   state.enabledTables = data.enabled_tables;
   renderGrid(data.grid);
   renderTableRows(data.grid);
-  renderTotalTime(data.total_time);
+  renderTotalTime(data.total_time, data.total_answers);
 
-  if (data.correct) {
-    displayProblem(data.next_problem);
+  if (state.race.active) {
+    if (data.correct) {
+      nextRaceProblem();
+    } else {
+      // Wrong in race: show correction; on success the problem is reinserted
+      showCorrectionMode(answer, data.correct_answer, null);
+    }
   } else {
-    showCorrectionMode(answer, data.correct_answer, data.next_problem);
+    if (data.correct) {
+      displayProblem(data.next_problem);
+    } else {
+      showCorrectionMode(answer, data.correct_answer, data.next_problem);
+    }
   }
 }
 
-function checkCorrection() {
+async function checkCorrection() {
   const raw = correctionInput.value.trim();
   if (raw === '') return;
   const typed = parseInt(raw, 10);
-  if (typed === state.correctAnswer) {
+  if (typed !== state.correctAnswer) return;
+
+  if (state.race.active) {
+    // Reinsert problem at random position in remaining queue
+    const pos = Math.floor(Math.random() * (state.race.queue.length + 1));
+    state.race.queue.splice(pos, 0, state.race.currentProblem);
+    // Submit the correct answer to the API so it counts
+    const elapsedSecs = (Date.now() - state.problemStartMs) / 1000;
+    const res = await apiPost('/api/answer', {
+      a: state.race.currentProblem.a,
+      b: state.race.currentProblem.b,
+      answer: typed,
+      elapsed_secs: elapsedSecs,
+      mode: state.mode,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      state.enabledTables = data.enabled_tables;
+      renderGrid(data.grid);
+      renderTableRows(data.grid);
+      renderTotalTime(data.total_time, data.total_answers);
+    }
+    nextRaceProblem();
+  } else {
     displayProblem(state.pendingNextProblem);
   }
 }
@@ -430,11 +567,21 @@ correctionInput.addEventListener('keydown', e => {
 });
 
 
+startRaceBtn.addEventListener('click', startRace);
+raceCancelBtn.addEventListener('click', cancelRace);
+
 // ── Mode toggle ───────────────────────────────────────────────────────────────
 
 modeToggle.addEventListener('change', async e => {
   const radio = e.target.closest('input[name="mode"]');
   if (!radio) return;
+  if (state.race.active) {
+    clearInterval(state.race.timerInterval);
+    state.race.active = false;
+    state.race.queue  = [];
+    document.body.classList.remove('race-active');
+    raceInfoEl.classList.add('hidden');
+  }
   state.mode = radio.value;
   localStorage.setItem('mode', state.mode);
   state.awaitingCorrection = false;
