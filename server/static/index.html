@@ -112,6 +112,13 @@
       <!-- Right: table progress rows + grid -->
       <div class="practice-right">
         <div class="card grid-card">
+          <div id="total-time-row" class="total-time-row">
+            <span class="total-time-label">Estimated Time</span>
+            <span class="total-time-right">
+              <span id="total-time-value" class="total-time-value"></span>
+              <span id="total-time-next" class="total-time-next"></span>
+            </span>
+          </div>
           <div class="grid-title">Tables</div>
           <div id="table-rows" class="table-rows"></div>
           <div class="grid-title grid-title-sub">Progress</div>
@@ -122,10 +129,6 @@
             <span class="legend-item" data-tooltip="3 correct answers in a row"><span class="legend-dot solid"></span>Solid</span>
             <span class="legend-item" data-tooltip="Solid + answered in under 3s at least once"><span class="legend-dot fast"></span>Fast</span>
             <span class="legend-item" data-tooltip="3 correct answers in a row, each under 3s"><span class="legend-dot mastered"></span>Mastered</span>
-          </div>
-          <div id="total-time-row" class="total-time-row hidden">
-            <span class="total-time-label">Total Time</span>
-            <span id="total-time-value" class="total-time-value"></span>
           </div>
         </div>
       </div>
