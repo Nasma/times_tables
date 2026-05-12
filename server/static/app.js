@@ -52,7 +52,6 @@ const googleBtn       = $('google-btn');
 const progressGrid    = $('progress-grid');
 const totalTimeRow    = $('total-time-row');
 const totalTimeValue  = $('total-time-value');
-const totalTimeNext   = $('total-time-next');
 const tableRowsEl     = $('table-rows');
 const raceInfoEl         = $('race-info');
 const raceTimerEl        = $('race-timer');
@@ -216,13 +215,12 @@ function renderTableRows(grid) {
 }
 
 
-function renderTotalTime(totalTime, totalAnswers) {
+function renderTotalTime(totalTime) {
   const secs = Math.round(totalTime);
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   totalTimeValue.textContent = m > 0 ? `${m}m ${s}s` : `${s}s`;
-  const answeredInBlock = totalAnswers % 50;
-  totalTimeNext.textContent = `Next update ${answeredInBlock}/50`;
+
 }
 
 // ── Race mode ─────────────────────────────────────────────────────────────────
@@ -357,7 +355,7 @@ async function loadState() {
     state.enabledTables = data.enabled_tables;
     renderGrid(data.grid);
     renderTableRows(data.grid);
-    renderTotalTime(data.total_time, data.total_answers);
+    renderTotalTime(data.total_time);
     renderLastRaceTime();
     displayProblem(data.problem);
     showPractice();
@@ -499,7 +497,7 @@ async function submitAnswer() {
   state.enabledTables = data.enabled_tables;
   renderGrid(data.grid);
   renderTableRows(data.grid);
-  renderTotalTime(data.total_time, data.total_answers);
+  renderTotalTime(data.total_time);
 
   if (state.race.active) {
     if (data.correct) {
@@ -541,7 +539,7 @@ async function checkCorrection() {
       state.enabledTables = data.enabled_tables;
       renderGrid(data.grid);
       renderTableRows(data.grid);
-      renderTotalTime(data.total_time, data.total_answers);
+      renderTotalTime(data.total_time);
     }
     nextRaceProblem();
   } else {
