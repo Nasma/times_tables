@@ -59,6 +59,7 @@ const raceProgressEl     = $('race-progress-text');
 const raceCancelBtn      = $('race-cancel-btn');
 const startRaceBtn       = $('start-race-btn');
 const raceLastTimeEl     = $('race-last-time');
+const raceBestTimeEl     = $('race-best-time');
 const modeToggle         = $('mode-toggle');
 const practiceHeading    = $('practice-heading');
 const roleTabs        = $('role-tabs');
@@ -235,8 +236,10 @@ function formatRaceTime(ms) {
 }
 
 function renderLastRaceTime() {
-  const saved = localStorage.getItem(`lastRace_${state.mode}`);
-  raceLastTimeEl.textContent = saved ? formatRaceTime(parseInt(saved, 10)) : '—';
+  const last = localStorage.getItem(`lastRace_${state.mode}`);
+  raceLastTimeEl.textContent = last ? formatRaceTime(parseInt(last, 10)) : '—';
+  const best = localStorage.getItem(`bestRace_${state.mode}`);
+  raceBestTimeEl.textContent = best ? formatRaceTime(parseInt(best, 10)) : '—';
 }
 
 function buildRaceQueue() {
@@ -298,6 +301,10 @@ async function finishRace() {
   state.race.queue  = [];
 
   localStorage.setItem(`lastRace_${state.mode}`, elapsed);
+  const prev = localStorage.getItem(`bestRace_${state.mode}`);
+  if (!prev || elapsed < parseInt(prev, 10)) {
+    localStorage.setItem(`bestRace_${state.mode}`, elapsed);
+  }
 
   document.body.classList.remove('race-active');
   raceInfoEl.classList.add('hidden');
