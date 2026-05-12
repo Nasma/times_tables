@@ -266,6 +266,8 @@ function startRace() {
   document.body.classList.add('race-active');
   practiceHeading.textContent = 'Race Mode';
   raceInfoEl.classList.remove('hidden');
+  startRaceBtn.classList.add('hidden');
+  raceCancelBtn.classList.remove('hidden');
 
   state.race.timerInterval = setInterval(() => {
     const elapsed = Date.now() - state.race.startMs;
@@ -283,6 +285,8 @@ function cancelRace() {
   state.race.queue  = [];
   document.body.classList.remove('race-active');
   raceInfoEl.classList.add('hidden');
+  startRaceBtn.classList.remove('hidden');
+  raceCancelBtn.classList.add('hidden');
   updateModeUI();
   loadState();
 }
@@ -297,6 +301,8 @@ async function finishRace() {
 
   document.body.classList.remove('race-active');
   raceInfoEl.classList.add('hidden');
+  startRaceBtn.classList.remove('hidden');
+  raceCancelBtn.classList.add('hidden');
   updateModeUI();
   renderLastRaceTime();
 
@@ -579,6 +585,8 @@ modeToggle.addEventListener('change', async e => {
     state.race.queue  = [];
     document.body.classList.remove('race-active');
     raceInfoEl.classList.add('hidden');
+    startRaceBtn.classList.remove('hidden');
+    raceCancelBtn.classList.add('hidden');
   }
   state.mode = radio.value;
   localStorage.setItem('mode', state.mode);

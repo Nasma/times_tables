@@ -581,6 +581,16 @@ body.race-active {
   background: #900;
 }
 
+.btn-race-cancel {
+  background: var(--surface);
+  color: #b00;
+  border: 1px solid rgba(180, 0, 0, 0.3);
+}
+
+.btn-race-cancel:hover {
+  background: #fff0f0;
+}
+
 .auth-blurb {
   max-width: 360px;
   margin: 1.25rem auto 0;
