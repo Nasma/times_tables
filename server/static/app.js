@@ -216,6 +216,10 @@ function renderTableRows(grid) {
 }
 
 
+function renderCorrect10m(n) {
+  $('correct-10m-label').textContent = `${n} correct in the last 10 minutes`;
+}
+
 function renderTotalTime(totalTime) {
   const secs = Math.round(totalTime);
   const m = Math.floor(secs / 60);
@@ -366,6 +370,7 @@ async function loadState() {
     renderGrid(data.grid);
     renderTableRows(data.grid);
     renderTotalTime(data.total_time);
+    renderCorrect10m(data.correct_10m ?? 0);
     renderLastRaceTime(data.last_race_ms ?? null, data.best_race_ms ?? null);
     displayProblem(data.problem);
     showPractice();
@@ -508,6 +513,7 @@ async function submitAnswer() {
   renderGrid(data.grid);
   renderTableRows(data.grid);
   renderTotalTime(data.total_time);
+  renderCorrect10m(data.correct_10m ?? 0);
 
   if (state.race.active) {
     if (data.correct) {
@@ -550,6 +556,7 @@ async function checkCorrection() {
       renderGrid(data.grid);
       renderTableRows(data.grid);
       renderTotalTime(data.total_time);
+      renderCorrect10m(data.correct_10m ?? 0);
     }
     nextRaceProblem();
   } else {

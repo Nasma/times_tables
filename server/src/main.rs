@@ -84,6 +84,7 @@ struct StateResponse {
     total_answers: u32,
     last_race_ms: Option<i64>,
     best_race_ms: Option<i64>,
+    correct_10m: u32,
 }
 
 #[derive(Serialize)]
@@ -159,6 +160,7 @@ struct AnswerResponse {
     mode: String,
     total_time: f64,
     total_answers: u32,
+    correct_10m: u32,
 }
 
 #[derive(Deserialize)]
@@ -550,6 +552,14 @@ async fn append_response(
 
     tokio::fs::write(&file_path, content).await.map_err(internal)?;
     Ok(())
+}
+
+fn correct_in_last_10m(sr: &SpacedRepetition) -> u32 {
+    let cutoff = Utc::now().timestamp() - 600;
+    sr.all_stats()
+        .flat_map(|s| s.responses.iter())
+        .filter(|r| r.correct && r.answered_at_secs >= cutoff)
+        .count() as u32
 }
 
 // ── Problem selection ─────────────────────────────────────────────────────────
@@ -944,6 +954,7 @@ async fn get_state(
         total_answers: sr.total_answers(),
         last_race_ms,
         best_race_ms,
+        correct_10m: correct_in_last_10m(&sr),
     }))
 }
 
@@ -1000,6 +1011,7 @@ async fn submit_answer(
         mode: mode_str,
         total_time: sr.cached_total_time(),
         total_answers: sr.total_answers(),
+        correct_10m: correct_in_last_10m(&sr),
     }))
 }
 
@@ -1038,6 +1050,7 @@ async fn set_enabled_tables(
         total_answers: sr.total_answers(),
         last_race_ms,
         best_race_ms,
+        correct_10m: correct_in_last_10m(&sr),
     }))
 }
 

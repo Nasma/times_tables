@@ -303,6 +303,16 @@ h1 {
 .wrong-count   { color: var(--danger); }
 
 /* Actions */
+.activity-bar {
+  margin-top: 0.75rem;
+  text-align: center;
+}
+
+.activity-label {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
 .actions {
   display: flex;
   justify-content: space-between;

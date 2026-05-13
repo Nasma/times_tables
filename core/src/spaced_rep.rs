@@ -154,6 +154,10 @@ impl SpacedRepetition {
         self.cached_total_time
     }
 
+    pub fn all_stats(&self) -> impl Iterator<Item = &ProblemStats> {
+        self.stats.values()
+    }
+
     pub fn compute_total_time(&self) -> f64 {
         self.stats.values().map(|s| s.correct_time()).sum()
     }
