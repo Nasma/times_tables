@@ -235,11 +235,9 @@ function formatRaceTime(ms) {
     : `${secs}.${tenths}`;
 }
 
-function renderLastRaceTime() {
-  const last = localStorage.getItem(`lastRace_${state.mode}`);
-  raceLastTimeEl.textContent = last ? formatRaceTime(parseInt(last, 10)) : '—';
-  const best = localStorage.getItem(`bestRace_${state.mode}`);
-  raceBestTimeEl.textContent = best ? formatRaceTime(parseInt(best, 10)) : '—';
+function renderLastRaceTime(lastMs, bestMs) {
+  raceLastTimeEl.textContent = lastMs != null ? formatRaceTime(lastMs) : '—';
+  raceBestTimeEl.textContent = bestMs != null ? formatRaceTime(bestMs) : '—';
 }
 
 function buildRaceQueue() {
@@ -300,18 +298,17 @@ async function finishRace() {
   state.race.active = false;
   state.race.queue  = [];
 
-  localStorage.setItem(`lastRace_${state.mode}`, elapsed);
-  const prev = localStorage.getItem(`bestRace_${state.mode}`);
-  if (!prev || elapsed < parseInt(prev, 10)) {
-    localStorage.setItem(`bestRace_${state.mode}`, elapsed);
-  }
-
   document.body.classList.remove('race-active');
   raceInfoEl.classList.add('hidden');
   startRaceBtn.classList.remove('hidden');
   raceCancelBtn.classList.add('hidden');
   updateModeUI();
-  renderLastRaceTime();
+
+  const res = await apiPost('/api/race', { mode: state.mode, elapsed_ms: elapsed });
+  if (res.ok) {
+    const data = await res.json();
+    renderLastRaceTime(data.last_race_ms, data.best_race_ms);
+  }
 
   await loadState();
 }
@@ -369,7 +366,7 @@ async function loadState() {
     renderGrid(data.grid);
     renderTableRows(data.grid);
     renderTotalTime(data.total_time);
-    renderLastRaceTime();
+    renderLastRaceTime(data.last_race_ms ?? null, data.best_race_ms ?? null);
     displayProblem(data.problem);
     showPractice();
   }

@@ -81,6 +81,9 @@ struct StateResponse {
     role: String,
     mode: String,
     total_time: f64,
+    total_answers: u32,
+    last_race_ms: Option<i64>,
+    best_race_ms: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -155,6 +158,7 @@ struct AnswerResponse {
     enabled_tables: Vec<u8>,
     mode: String,
     total_time: f64,
+    total_answers: u32,
 }
 
 #[derive(Deserialize)]
@@ -293,6 +297,93 @@ async fn save_user_state(
         .await
         .map_err(internal)?;
     Ok(())
+}
+
+// ── Race helpers ──────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct RecordRaceRequest {
+    mode: Mode,
+    elapsed_ms: i64,
+}
+
+#[derive(Serialize)]
+struct RaceStatsResponse {
+    last_race_ms: Option<i64>,
+    best_race_ms: Option<i64>,
+}
+
+async fn get_race_stats(
+    db: &SqlitePool,
+    user_id: i64,
+    mode: &str,
+) -> Result<(Option<i64>, Option<i64>), (StatusCode, String)> {
+    let last = sqlx::query(
+        "SELECT elapsed_ms FROM races WHERE user_id = ? AND mode = ?
+         ORDER BY completed_at DESC LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(mode)
+    .fetch_optional(db)
+    .await
+    .map_err(internal)?
+    .and_then(|r| r.try_get::<i64, _>("elapsed_ms").ok());
+
+    let best = sqlx::query(
+        "SELECT MIN(elapsed_ms) as best FROM races WHERE user_id = ? AND mode = ?",
+    )
+    .bind(user_id)
+    .bind(mode)
+    .fetch_optional(db)
+    .await
+    .map_err(internal)?
+    .and_then(|r| r.try_get::<i64, _>("best").ok());
+
+    Ok((last, best))
+}
+
+async fn record_race(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<RecordRaceRequest>,
+) -> AppResult<RaceStatsResponse> {
+    let user_id = authenticate(&state.db, &headers)
+        .await
+        .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
+
+    let mode_str = match req.mode {
+        Mode::Addition => "addition",
+        Mode::Subtraction => "subtraction",
+        Mode::TimesTables => "times_tables",
+    };
+    let completed_at = Utc::now().to_rfc3339();
+
+    sqlx::query(
+        "INSERT INTO races (user_id, mode, elapsed_ms, completed_at) VALUES (?, ?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(mode_str)
+    .bind(req.elapsed_ms)
+    .bind(&completed_at)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
+    // Trim to 100 most recent per (user, mode).
+    sqlx::query(
+        "DELETE FROM races WHERE id IN (
+            SELECT id FROM races WHERE user_id = ? AND mode = ?
+            ORDER BY completed_at DESC LIMIT -1 OFFSET 100
+         )",
+    )
+    .bind(user_id)
+    .bind(mode_str)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
+    let (last_race_ms, best_race_ms) = get_race_stats(&state.db, user_id, &mode_str).await?;
+    Ok(Json(RaceStatsResponse { last_race_ms, best_race_ms }))
 }
 
 // ── Teacher helpers ───────────────────────────────────────────────────────────
@@ -743,6 +834,8 @@ async fn get_state(
         Mode::TimesTables => (sr.grid_status(), "times_tables".to_string()),
     };
 
+    let (last_race_ms, best_race_ms) = get_race_stats(&state.db, user_id, &mode_str).await?;
+
     Ok(Json(StateResponse {
         problem,
         mastered: sr.mastered_count(),
@@ -751,7 +844,10 @@ async fn get_state(
         enabled_tables: sr.get_enabled_tables(),
         role,
         mode: mode_str,
-        total_time: sr.cached_total_time(),
+        total_time: sr.compute_total_time(),
+        total_answers: sr.total_answers(),
+        last_race_ms,
+        best_race_ms,
     }))
 }
 
@@ -807,6 +903,7 @@ async fn submit_answer(
         enabled_tables: sr.get_enabled_tables(),
         mode: mode_str,
         total_time: sr.cached_total_time(),
+        total_answers: sr.total_answers(),
     }))
 }
 
@@ -831,6 +928,8 @@ async fn set_enabled_tables(
         Mode::Subtraction => (sr.grid_status_sized(10), "subtraction".to_string()),
         Mode::TimesTables => (sr.grid_status(), "times_tables".to_string()),
     };
+    let (last_race_ms, best_race_ms) = get_race_stats(&state.db, user_id, &mode_str).await?;
+
     Ok(Json(StateResponse {
         problem,
         mastered: sr.mastered_count(),
@@ -839,7 +938,10 @@ async fn set_enabled_tables(
         enabled_tables: sr.get_enabled_tables(),
         role,
         mode: mode_str,
-        total_time: sr.cached_total_time(),
+        total_time: sr.compute_total_time(),
+        total_answers: sr.total_answers(),
+        last_race_ms,
+        best_race_ms,
     }))
 }
 
@@ -1468,6 +1570,27 @@ async fn migrate_db(pool: &SqlitePool) {
     .execute(pool)
     .await
     .expect("Could not create progress_subtraction table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS races (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            mode TEXT NOT NULL,
+            elapsed_ms INTEGER NOT NULL,
+            completed_at TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("Could not create races table");
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_races_user_mode \
+         ON races(user_id, mode, completed_at DESC)",
+    )
+    .execute(pool)
+    .await
+    .expect("Could not create races index");
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -1505,6 +1628,7 @@ async fn main() {
         .route("/api/reset", post(reset_progress))
         .route("/api/tables", post(set_enabled_tables))
         .route("/api/config", get(get_config))
+        .route("/api/race", post(record_race))
         .route("/api/teacher/invite", get(get_teacher_invite))
         .route("/api/teacher/students", get(get_teacher_students))
         .route("/api/join_info/:token", get(get_join_info))
