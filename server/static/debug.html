@@ -5,14 +5,17 @@
   <title>Debug – Problem Priority</title>
   <style>
     body { font-family: monospace; padding: 1rem; background: #f8f8f8; }
-    h1 { font-size: 1.2rem; margin-bottom: 1rem; }
+    h1 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+    nav { margin-bottom: 1rem; display: flex; gap: 0.5rem; }
+    nav a { padding: 0.25rem 0.75rem; border: 1px solid #ccc; border-radius: 4px;
+            text-decoration: none; color: #333; background: #fff; font-size: 0.9rem; }
+    nav a.active { background: #2563eb; color: #fff; border-color: #2563eb; }
     #status { color: #666; margin-bottom: 1rem; }
-    table { border-collapse: collapse; width: 100%; max-width: 800px; }
+    table { border-collapse: collapse; width: 100%; max-width: 860px; }
     th, td { border: 1px solid #ccc; padding: 0.3rem 0.7rem; text-align: left; }
     th { background: #eee; }
     tr:hover { background: #f0f0f0; }
     .rank { color: #999; text-align: right; }
-    .errors-0 { }
     .errors-hi { color: #c00; font-weight: bold; }
     .time-fast { color: #080; }
     .time-slow { color: #c00; }
@@ -21,6 +24,7 @@
 </head>
 <body>
   <h1>Problem priority (debug)</h1>
+  <nav id="nav"></nav>
   <div id="status">Loading…</div>
   <table id="table" style="display:none">
     <thead>
@@ -37,11 +41,36 @@
     <tbody id="tbody"></tbody>
   </table>
   <script>
+    const MODES = [
+      { key: 'times_tables', label: 'Times Tables' },
+      { key: 'addition',     label: 'Addition' },
+      { key: 'subtraction',  label: 'Subtraction' },
+    ];
+
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode') || 'times_tables';
+
+    // Build nav
+    const nav = document.getElementById('nav');
+    MODES.forEach(m => {
+      const a = document.createElement('a');
+      a.href = '/debug?mode=' + m.key;
+      a.textContent = m.label;
+      if (m.key === mode) a.className = 'active';
+      nav.appendChild(a);
+    });
+
+    function formatProblem(p, mode) {
+      if (mode === 'addition')     return `${p.a} + ${p.b}`;
+      if (mode === 'subtraction')  return `${p.a + p.b} − ${p.a}`;
+      return `${p.a} × ${p.b}`;
+    }
+
     const token = localStorage.getItem('token');
     if (!token) {
       document.getElementById('status').textContent = 'Not logged in.';
     } else {
-      fetch('/api/debug', { headers: { Authorization: 'Bearer ' + token } })
+      fetch('/api/debug?mode=' + mode, { headers: { Authorization: 'Bearer ' + token } })
         .then(r => {
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
@@ -50,8 +79,7 @@
           const tbody = document.getElementById('tbody');
           data.problems.forEach((p, i) => {
             const tr = document.createElement('tr');
-
-            const errClass = p.errors_in_last_5 > 0 ? 'errors-hi' : 'errors-0';
+            const errClass = p.errors_in_last_5 > 0 ? 'errors-hi' : '';
 
             function timeCell(val) {
               if (p.no_data) return { text: '—', cls: 'time-none' };
@@ -66,7 +94,7 @@
 
             tr.innerHTML =
               `<td class="rank">${i + 1}</td>` +
-              `<td>${p.a} × ${p.b}</td>` +
+              `<td>${formatProblem(p, data.mode)}</td>` +
               `<td class="${errClass}">${p.errors_in_last_5}</td>` +
               `<td class="${t.cls}">${t.text}</td>` +
               `<td class="${sd.cls}">${sd.text}</td>` +

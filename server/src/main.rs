@@ -634,8 +634,15 @@ struct DebugProblemEntry {
     last_5_attempts: String,
 }
 
+#[derive(Deserialize)]
+struct DebugQuery {
+    #[serde(default)]
+    mode: Mode,
+}
+
 #[derive(Serialize)]
 struct DebugResponse {
+    mode: String,
     problems: Vec<DebugProblemEntry>,
 }
 
@@ -649,12 +656,24 @@ async fn serve_debug() -> impl IntoResponse {
 async fn get_debug(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Query(q): Query<DebugQuery>,
 ) -> AppResult<DebugResponse> {
     let user_id = authenticate(&state.db, &headers)
         .await
         .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
 
-    let sr = load_user_data(&state.db, &state.responses_dir, user_id, Mode::TimesTables).await?;
+    let sr = load_user_data(&state.db, &state.responses_dir, user_id, q.mode).await?;
+
+    let mode_str = match q.mode {
+        Mode::Addition => "addition",
+        Mode::Subtraction => "subtraction",
+        Mode::TimesTables => "times_tables",
+    };
+
+    let all_problems = match q.mode {
+        Mode::Addition | Mode::Subtraction => generate_addition_problems(),
+        Mode::TimesTables => generate_all_problems(),
+    };
 
     struct Entry {
         problem: Problem,
@@ -665,7 +684,7 @@ async fn get_debug(
         last_5_attempts: String,
     }
 
-    let mut entries: Vec<Entry> = generate_all_problems()
+    let mut entries: Vec<Entry> = all_problems
         .into_iter()
         .map(|p| {
             let (errors_in_last_5, estimated_time, estimated_time_sd, no_data, last_5_attempts) = sr
@@ -710,7 +729,7 @@ async fn get_debug(
         })
         .collect();
 
-    Ok(Json(DebugResponse { problems }))
+    Ok(Json(DebugResponse { mode: mode_str.to_string(), problems }))
 }
 
 // ── Static file handlers ──────────────────────────────────────────────────────
