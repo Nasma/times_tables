@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>History</title>
+  <style>
+    body { font-family: monospace; padding: 1rem; background: #f8f8f8; }
+    h1 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+    nav { margin-bottom: 1rem; display: flex; gap: 0.5rem; }
+    nav a { padding: 0.25rem 0.75rem; border: 1px solid #ccc; border-radius: 4px;
+            text-decoration: none; color: #333; background: #fff; font-size: 0.9rem; }
+    nav a.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+    #status { color: #666; margin-bottom: 1rem; }
+    table { border-collapse: collapse; width: 100%; max-width: 640px; }
+    th, td { border: 1px solid #ccc; padding: 0.3rem 0.7rem; text-align: left; }
+    th { background: #eee; }
+    tr:hover { background: #f0f0f0; }
+    .correct   { color: #080; }
+    .incorrect { color: #c00; font-weight: bold; }
+    .time-fast { color: #080; }
+    .time-slow { color: #c00; }
+    .rank { color: #999; text-align: right; }
+  </style>
+</head>
+<body>
+  <h1>Answer history</h1>
+  <nav id="nav"></nav>
+  <div id="status">Loading…</div>
+  <table id="table" style="display:none">
+    <thead>
+      <tr>
+        <th class="rank">#</th>
+        <th>Time</th>
+        <th>Problem</th>
+        <th>Result</th>
+        <th>Elapsed</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <script>
+    const MODES = [
+      { key: 'times_tables', label: 'Times Tables' },
+      { key: 'addition',     label: 'Addition' },
+      { key: 'subtraction',  label: 'Subtraction' },
+    ];
+
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode') || 'times_tables';
+
+    const nav = document.getElementById('nav');
+    MODES.forEach(m => {
+      const a = document.createElement('a');
+      a.href = '/history?mode=' + m.key;
+      a.textContent = m.label;
+      if (m.key === mode) a.className = 'active';
+      nav.appendChild(a);
+    });
+
+    function formatProblem(e, mode) {
+      if (mode === 'addition')    return `${e.a} + ${e.b}`;
+      if (mode === 'subtraction') return `${e.a + e.b} − ${e.a}`;
+      return `${e.a} × ${e.b}`;
+    }
+
+    function formatTime(secs) {
+      const d = new Date(secs * 1000);
+      return d.toLocaleString();
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      document.getElementById('status').textContent = 'Not logged in.';
+    } else {
+      fetch('/api/history?mode=' + mode, { headers: { Authorization: 'Bearer ' + token } })
+        .then(r => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(data => {
+          const tbody = document.getElementById('tbody');
+          data.entries.forEach((e, i) => {
+            const tr = document.createElement('tr');
+            const resultCls = e.correct ? 'correct' : 'incorrect';
+            const resultText = e.correct ? '✓' : '✗';
+            const elapsedCls = e.elapsed_secs <= 2 ? 'time-fast' : e.elapsed_secs >= 5 ? 'time-slow' : '';
+            tr.innerHTML =
+              `<td class="rank">${i + 1}</td>` +
+              `<td>${formatTime(e.answered_at_secs)}</td>` +
+              `<td>${formatProblem(e, data.mode)}</td>` +
+              `<td class="${resultCls}">${resultText}</td>` +
+              `<td class="${elapsedCls}">${e.elapsed_secs.toFixed(1)}s</td>`;
+            tbody.appendChild(tr);
+          });
+          document.getElementById('status').textContent =
+            `Showing ${data.entries.length} most recent answers.`;
+          document.getElementById('table').style.display = '';
+        })
+        .catch(e => {
+          document.getElementById('status').textContent = 'Error: ' + e.message;
+        });
+    }
+  </script>
+</body>
+</html>

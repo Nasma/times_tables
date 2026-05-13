@@ -621,6 +621,83 @@ fn pick_problem(sr: &SpacedRepetition, last: Option<&Problem>) -> ProblemDto {
     ProblemDto { a: chosen.a, b: chosen.b }
 }
 
+// ── History ───────────────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct HistoryEntry {
+    answered_at_secs: i64,
+    a: u8,
+    b: u8,
+    elapsed_secs: f64,
+    correct: bool,
+}
+
+#[derive(Serialize)]
+struct HistoryResponse {
+    mode: String,
+    entries: Vec<HistoryEntry>,
+}
+
+async fn serve_history() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        include_str!("../static/history.html"),
+    )
+}
+
+async fn get_history(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(q): Query<DebugQuery>,
+) -> AppResult<HistoryResponse> {
+    let user_id = authenticate(&state.db, &headers)
+        .await
+        .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
+
+    let mode_str = match q.mode {
+        Mode::Addition => "addition",
+        Mode::Subtraction => "subtraction",
+        Mode::TimesTables => "times_tables",
+    };
+
+    let all_problems = match q.mode {
+        Mode::Addition | Mode::Subtraction => generate_addition_problems(),
+        Mode::TimesTables => generate_all_problems(),
+    };
+
+    let mut entries: Vec<HistoryEntry> = Vec::new();
+    for problem in all_problems {
+        let (subdir, filename) = match q.mode {
+            Mode::Addition | Mode::Subtraction => {
+                let sub = if q.mode == Mode::Addition { "addition" } else { "subtraction" };
+                (sub, format!("{}+{}.csv", problem.a, problem.b))
+            }
+            Mode::TimesTables => ("times_tables", format!("{}x{}.csv", problem.a, problem.b)),
+        };
+        let path = state.responses_dir
+            .join(user_id.to_string())
+            .join(subdir)
+            .join(&filename);
+        let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+        for line in content.lines() {
+            if let Some(record) = parse_csv_line(line) {
+                entries.push(HistoryEntry {
+                    answered_at_secs: record.answered_at_secs,
+                    a: problem.a,
+                    b: problem.b,
+                    elapsed_secs: record.elapsed_secs,
+                    correct: record.correct,
+                });
+            }
+        }
+    }
+
+    entries.sort_by(|a, b| b.answered_at_secs.cmp(&a.answered_at_secs));
+    entries.truncate(500);
+
+    Ok(Json(HistoryResponse { mode: mode_str.to_string(), entries }))
+}
+
 // ── Debug ─────────────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -1657,7 +1734,9 @@ async fn main() {
         .route("/style.css", get(serve_css))
         .route("/app.js", get(serve_js))
         .route("/debug", get(serve_debug))
-        .route("/api/debug", get(get_debug));
+        .route("/api/debug", get(get_debug))
+        .route("/history", get(serve_history))
+        .route("/api/history", get(get_history));
 
     if has_google {
         app = app
