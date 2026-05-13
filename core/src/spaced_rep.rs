@@ -154,6 +154,14 @@ impl SpacedRepetition {
         self.cached_total_time
     }
 
+    pub fn compute_total_time(&self) -> f64 {
+        self.stats.values().map(|s| s.correct_time()).sum()
+    }
+
+    pub fn total_answers(&self) -> u32 {
+        self.total_answers
+    }
+
     pub fn enabled_problem_list(&self) -> Vec<Problem> {
         let mut problems: Vec<Problem> = self
             .stats
