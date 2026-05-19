@@ -1,6 +1,8 @@
 # Efficient Times Tables Practice
 
-A desktop app for learning multiplication tables using spaced repetition. It tracks which facts you find hardest and focuses practice on those, so you get better faster.
+A web app for learning multiplication tables (and addition/subtraction) using spaced repetition. It tracks which facts you find hardest and focuses practice on those, so you get better faster.
+
+Live at [times-tables.fly.dev](https://times-tables.fly.dev).
 
 ## Features
 
@@ -8,8 +10,11 @@ A desktop app for learning multiplication tables using spaced repetition. It tra
 - **Response-time scoring**: Answering quickly earns a higher ease factor boost than a slow correct answer
 - **Progressive table unlock**: Start with the 1× table. New tables unlock as you master 75% of the current set, introduced in a pedagogically friendly order (1, 10, 5, 11, 2, 3, 9, 4, 6, 7, 8, 12)
 - **Error correction**: On a wrong answer, the correct answer is shown and you must type it before moving on
-- **Persistent progress**: Your progress is saved automatically between sessions
-- **Session and all-time stats**: Streak, mastered count, due count, correct/wrong tallies
+- **Achievement tiers**: Problems progress through learning → solid → fast → mastered, shown on a 12×12 progress grid
+- **Race mode**: Timed challenge through all unlocked problems; tracks last and best race times
+- **Multiple modes**: Times tables, addition, and subtraction
+- **Teacher view**: Invite students and track their progress
+- **Persistent progress**: Progress is saved server-side with user accounts (Google OAuth or username/password)
 
 ## How it works
 
@@ -20,23 +25,25 @@ Each problem has an *ease factor* (starting at 2.5) and a *review interval*. Whe
 
 A problem is considered *mastered* once you've answered it correctly three times in a row with an ease factor of 2.0 or above.
 
-## Building
+## Running locally
 
 Requires [Rust](https://rustup.rs/).
 
 ```bash
-cargo build --release
-./target/release/times_tables
+cargo build --bin server
+./target/debug/server
 ```
 
-## Data storage
+Then open [http://localhost:3000](http://localhost:3000).
 
-Progress is saved as JSON in the platform's standard data directory:
+**Optional environment variables:**
 
-| Platform | Location |
-|----------|----------|
-| Linux    | `~/.local/share/practice/times_tables/progress.json` |
-| macOS    | `~/Library/Application Support/com.practice.times_tables/progress.json` |
-| Windows  | `%APPDATA%\practice\times_tables\data\progress.json` |
+| Variable | Description |
+|----------|-------------|
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Enable Google OAuth login |
+| `BASE_URL` | OAuth redirect URI base (default: `http://localhost:3000`) |
+| `DATA_DIR` | SQLite DB directory (default: `~/.local/share/times_tables_server/`) |
 
-To reset progress, use the **Reset progress** button in the app (a confirmation step prevents accidental resets).
+## Deployment
+
+Deployed on [Fly.io](https://fly.io). Push to `master` triggers an automatic deploy via GitHub Actions.

@@ -8,15 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Build all crates
 cargo build
 
-# Build specific binary
+# Build server
 cargo build --bin server
-cargo build --bin desktop
 
 # Run server (from workspace root)
 ./target/debug/server
-
-# Run desktop app
-./target/debug/desktop
 
 # Run tests
 cargo test
@@ -27,11 +23,10 @@ cargo test -p tt_core
 
 ## Architecture
 
-Cargo workspace with three crates:
+Cargo workspace with two crates:
 
-- **`core/` (`tt_core`)** — shared library: `Problem`/`ProblemStats` structs and `SpacedRepetition` engine. Both binaries depend on this.
+- **`core/` (`tt_core`)** — shared library: `Problem`/`ProblemStats` structs and `SpacedRepetition` engine.
 - **`server/`** — Axum web server with SQLite persistence (via `sqlx`), user accounts, and a vanilla JS frontend.
-- **`desktop/`** — egui desktop app with JSON file persistence (via `directories` crate).
 
 ### Spaced repetition logic (`core/`)
 
@@ -51,6 +46,3 @@ User state is serialized as JSON (`serde_json`) and stored in the `progress` tab
 
 DB is at `~/.local/share/times_tables_server/db.sqlite` (Linux). Schema migrations run at startup in `init_db` + `migrate_db`.
 
-### Desktop app (`desktop/src/`)
-
-`app.rs` contains the egui UI (`TimesTablesApp`). `storage.rs` handles JSON persistence. Progress is saved to the platform data dir after every answer.
