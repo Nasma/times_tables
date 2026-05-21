@@ -51,7 +51,6 @@ const resetCancel     = $('reset-cancel');
 const logoutBtn       = $('logout-btn');
 const googleAuth      = $('google-auth');
 const googleBtn       = $('google-btn');
-const progressGrid    = $('progress-grid');
 const totalTimeRow    = $('total-time-row');
 const totalTimeValue  = $('total-time-value');
 const raceInfoEl         = $('race-info');
@@ -202,17 +201,6 @@ function correctAnswer(a, b) {
 
 // ── Derived state ─────────────────────────────────────────────────────────────
 
-function computeGrid() {
-  const dim = state.mode === 'times_tables' ? 12 : 10;
-  const tiers = ['not_started', 'learning', 'solid', 'fast', 'mastered'];
-  const grid = [];
-  for (let a = 1; a <= dim; a++)
-    for (let b = 1; b <= dim; b++) {
-      const ps = state.problems[pkey(a, b)];
-      grid.push(ps ? (tiers[ps.bestTier] || 'not_started') : 'not_started');
-    }
-  return grid;
-}
 
 function computeMastered() {
   return Object.values(state.problems).filter(ps => ps.consecutiveCorrect >= 3).length;
@@ -241,21 +229,6 @@ function renderStats() {
   $('stat-total').textContent = computeTotalCorrect();
 }
 
-function renderGrid(grid) {
-  const dim = state.mode === 'times_tables' ? 12 : 10;
-  progressGrid.innerHTML = '';
-  progressGrid.style.setProperty('--grid-cols', dim);
-  grid.forEach((status, i) => {
-    const a = Math.floor(i / dim) + 1;
-    const b = (i % dim) + 1;
-    const cell = document.createElement('div');
-    cell.className = `grid-cell ${status}`;
-    if (state.mode === 'subtraction')   cell.title = `${a + b} − ${a} = ${b}`;
-    else if (state.mode === 'addition') cell.title = `${a} + ${b} = ${a + b}`;
-    else                                cell.title = `${a} × ${b} = ${a * b}`;
-    progressGrid.appendChild(cell);
-  });
-}
 
 
 function renderTotalTime(totalTime) {
@@ -270,7 +243,6 @@ function renderLastRaceTime(lastMs, bestMs) {
 }
 
 function refreshUI() {
-  renderGrid(computeGrid());
   renderTotalTime(computeTotalTime());
   renderStats();
 }
