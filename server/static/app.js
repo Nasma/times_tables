@@ -467,6 +467,28 @@ function nextRaceProblem() {
   displayProblem(state.race.currentProblem);
 }
 
+// ── Sync status ───────────────────────────────────────────────────────────────
+
+const syncEl = $('sync-status');
+let syncTimer = null;
+
+function setSynced() {
+  clearTimeout(syncTimer);
+  syncTimer = null;
+  syncEl.textContent = 'synced';
+  syncEl.className = 'sync-status synced';
+}
+
+function setUnsynced() {
+  syncEl.textContent = 'not synced';
+  syncEl.className = 'sync-status unsynced';
+}
+
+function markPending() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(setUnsynced, 2000);
+}
+
 // ── Offline queue ─────────────────────────────────────────────────────────────
 
 async function flushQueue() {
@@ -474,22 +496,24 @@ async function flushQueue() {
   while (q.length) {
     try {
       const res = await apiPost('/api/answer', q[0]);
-      if (!res.ok) break;
+      if (!res.ok) { setUnsynced(); break; }
       q.shift();
       saveQueue(q);
-    } catch (_) { break; }
+    } catch (_) { setUnsynced(); break; }
   }
+  if (!loadQueue().length) setSynced();
 }
 
 window.addEventListener('online', flushQueue);
 
 // Post answer to server in background; queue on failure.
 function postAnswer(a, b, answer, elapsedSecs) {
+  markPending();
   const payload = { a, b, answer, elapsed_secs: elapsedSecs, mode: state.mode, answered_at_secs: Math.floor(Date.now() / 1000) };
   apiPost('/api/answer', payload).then(res => {
-    if (res.ok) flushQueue();
-    else        { const q = loadQueue(); q.push(payload); saveQueue(q); }
-  }).catch(() => { const q = loadQueue(); q.push(payload); saveQueue(q); });
+    if (res.ok) { setSynced(); flushQueue(); }
+    else        { setUnsynced(); const q = loadQueue(); q.push(payload); saveQueue(q); }
+  }).catch(() => { setUnsynced(); const q = loadQueue(); q.push(payload); saveQueue(q); });
 }
 
 // ── Load state ────────────────────────────────────────────────────────────────
@@ -525,6 +549,7 @@ async function loadState() {
     state.bestRaceMs = serverData.best_race_ms ?? null;
     flushQueue();
   } else {
+    setUnsynced();
     const cached = loadCachedProblems();
     if (!cached) { showAuth(); return; }
     state.problems = cached;

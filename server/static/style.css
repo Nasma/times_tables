@@ -322,6 +322,15 @@ h1 {
   gap: 0.5rem;
 }
 
+.sync-status {
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+}
+.sync-status.synced     { color: #166534; background: #dcfce7; }
+.sync-status.unsynced   { color: #991b1b; background: #fee2e2; }
+
 .confirm-row {
   display: flex;
   align-items: center;
