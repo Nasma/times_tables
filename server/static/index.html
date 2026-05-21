@@ -102,10 +102,6 @@
           </div>
         </div>
 
-        <div id="activity-bar" class="activity-bar">
-          <span id="correct-10m-label" class="activity-label"></span>
-        </div>
-
         <!-- Actions -->
         <div class="actions">
           <div id="reset-area">
@@ -121,7 +117,7 @@
         </div>
       </div>
 
-      <!-- Right: table progress rows + grid -->
+      <!-- Right: stats + grid -->
       <div class="practice-right">
         <div class="card grid-card">
           <div id="total-time-row" class="total-time-row">
@@ -140,9 +136,13 @@
             <button id="start-race-btn" class="btn-race">Start New Race</button>
             <button id="race-cancel-btn" class="btn-race btn-race-cancel hidden">Cancel Race</button>
           </div>
-          <div class="grid-title">Tables</div>
-          <div id="table-rows" class="table-rows"></div>
-          <div class="grid-title grid-title-sub">Progress</div>
+          <div class="stats-section">
+            <div class="stat-row"><span class="stat-label">Last 10 minutes</span><span id="stat-10m" class="stat-value">—</span></div>
+            <div class="stat-row"><span class="stat-label">Last day</span><span id="stat-day" class="stat-value">—</span></div>
+            <div class="stat-row"><span class="stat-label">Last week</span><span id="stat-week" class="stat-value">—</span></div>
+            <div class="stat-row"><span class="stat-label">Total correct</span><span id="stat-total" class="stat-value">—</span></div>
+          </div>
+          <div class="grid-title">Progress</div>
           <div id="progress-grid" class="progress-grid"></div>
           <div class="grid-legend">
             <span class="legend-item" data-tooltip="Haven't answered this problem yet"><span class="legend-dot not_started"></span>Not started</span>

@@ -54,7 +54,6 @@ const googleBtn       = $('google-btn');
 const progressGrid    = $('progress-grid');
 const totalTimeRow    = $('total-time-row');
 const totalTimeValue  = $('total-time-value');
-const tableRowsEl     = $('table-rows');
 const raceInfoEl         = $('race-info');
 const raceTimerEl        = $('race-timer');
 const raceProgressEl     = $('race-progress-text');
@@ -223,54 +222,23 @@ function computeTotalTime() {
   return Object.values(state.problems).reduce((s, ps) => s + correctTime(ps), 0);
 }
 
-function computeCorrect10m() {
-  const cutoff = Math.floor(Date.now() / 1000) - 600;
+function computeCorrectInWindow(seconds) {
+  const cutoff = Math.floor(Date.now() / 1000) - seconds;
   return Object.values(state.problems).reduce((s, ps) =>
     s + ps.recentResponses.filter(r => r.correct && r.answeredAtSecs >= cutoff).length, 0);
 }
 
+function computeTotalCorrect() {
+  return Object.values(state.problems).reduce((s, ps) => s + ps.timesCorrect, 0);
+}
+
 // ── Render helpers ────────────────────────────────────────────────────────────
 
-const TIER_VAL = { not_started: 0, learning: 1, solid: 2, fast: 3, mastered: 4 };
-
-function renderTableRows(grid) {
-  const dim = state.mode === 'times_tables' ? 12 : 10;
-  const opSymbol = state.mode === 'times_tables' ? '×' : (state.mode === 'subtraction' ? '−' : '+');
-  tableRowsEl.innerHTML = '';
-  for (let n = 1; n <= dim; n++) {
-    const tiers = grid.slice((n - 1) * dim, n * dim).map(s => TIER_VAL[s]);
-    const min = Math.min(...tiers);
-    const countSolid    = tiers.filter(t => t >= 2).length;
-    const countFast     = tiers.filter(t => t >= 3).length;
-    const countMastered = tiers.filter(t => t >= 4).length;
-    const row = document.createElement('div');
-    row.className = 'table-row';
-    const lbl = document.createElement('span');
-    lbl.className = 'table-row-label';
-    lbl.textContent = `${n}${opSymbol}`;
-    row.appendChild(lbl);
-    const milestones = [];
-    let counterText = '';
-    if (min >= 2) milestones.push('solid');
-    if (min >= 3) milestones.push('fast');
-    if (min >= 4) milestones.push('mastered');
-    if (min < 2)      counterText = `${countSolid}/${dim} solid`;
-    else if (min < 3) counterText = `${countFast}/${dim} fast`;
-    else if (min < 4) counterText = `${countMastered}/${dim} mastered`;
-    for (const m of milestones) {
-      const badge = document.createElement('span');
-      badge.className = `table-milestone ${m}`;
-      badge.textContent = m.charAt(0).toUpperCase() + m.slice(1);
-      row.appendChild(badge);
-    }
-    if (counterText) {
-      const counter = document.createElement('span');
-      counter.className = 'table-counter';
-      counter.textContent = counterText;
-      row.appendChild(counter);
-    }
-    tableRowsEl.appendChild(row);
-  }
+function renderStats() {
+  $('stat-10m').textContent  = computeCorrectInWindow(600);
+  $('stat-day').textContent  = computeCorrectInWindow(86400);
+  $('stat-week').textContent = computeCorrectInWindow(604800);
+  $('stat-total').textContent = computeTotalCorrect();
 }
 
 function renderGrid(grid) {
@@ -289,9 +257,6 @@ function renderGrid(grid) {
   });
 }
 
-function renderCorrect10m(n) {
-  $('correct-10m-label').textContent = `${n} correct in the last 10 minutes`;
-}
 
 function renderTotalTime(totalTime) {
   const secs = Math.round(totalTime);
@@ -305,11 +270,9 @@ function renderLastRaceTime(lastMs, bestMs) {
 }
 
 function refreshUI() {
-  const grid = computeGrid();
-  renderGrid(grid);
-  renderTableRows(grid);
+  renderGrid(computeGrid());
   renderTotalTime(computeTotalTime());
-  renderCorrect10m(computeCorrect10m());
+  renderStats();
 }
 
 // ── View helpers ──────────────────────────────────────────────────────────────
