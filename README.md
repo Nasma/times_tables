@@ -8,7 +8,6 @@ Live at [times-tables.fly.dev](https://times-tables.fly.dev).
 
 - **Spaced repetition**: Problems you struggle with come back sooner; ones you know well are spaced further apart
 - **Response-time scoring**: Answering quickly earns a higher ease factor boost than a slow correct answer
-- **Progressive table unlock**: Start with the 1× table. New tables unlock as you master 75% of the current set, introduced in a pedagogically friendly order (1, 10, 5, 11, 2, 3, 9, 4, 6, 7, 8, 12)
 - **Error correction**: On a wrong answer, the correct answer is shown and you must type it before moving on
 - **Achievement tiers**: Problems progress through learning → solid → fast → mastered, shown on a 12×12 progress grid
 - **Race mode**: Timed challenge through all unlocked problems; tracks last and best race times

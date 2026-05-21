@@ -8,7 +8,6 @@ const state = {
   correctAnswer: null,
   pendingNextProblem: null, // next problem to show after correction
   problemStartMs: 0,
-  enabledTables: [1,2,3,4,5,6,7,8,9,10,11,12],
   role: 'student',
   mode: localStorage.getItem('mode') || 'times_tables',
   race: {
@@ -245,12 +244,11 @@ function renderLastRaceTime(lastMs, bestMs) {
 }
 
 function buildRaceQueue() {
-  const dim    = state.mode === 'times_tables' ? 12 : 10;
-  const tables = new Set(state.enabledTables);
+  const dim = state.mode === 'times_tables' ? 12 : 10;
   const problems = [];
   for (let a = 1; a <= dim; a++) {
     for (let b = 1; b <= dim; b++) {
-      if (tables.has(a) && tables.has(b)) problems.push({ a, b });
+      problems.push({ a, b });
     }
   }
   // Fisher-Yates shuffle
@@ -366,7 +364,6 @@ async function loadState() {
     showTeacher();
     await loadTeacherData();
   } else {
-    state.enabledTables = data.enabled_tables;
     renderGrid(data.grid);
     renderTableRows(data.grid);
     renderTotalTime(data.total_time);
@@ -509,7 +506,6 @@ async function submitAnswer() {
   if (!res.ok) return;
 
   const data = await res.json();
-  state.enabledTables = data.enabled_tables;
   renderGrid(data.grid);
   renderTableRows(data.grid);
   renderTotalTime(data.total_time);
@@ -552,7 +548,6 @@ async function checkCorrection() {
     });
     if (res.ok) {
       const data = await res.json();
-      state.enabledTables = data.enabled_tables;
       renderGrid(data.grid);
       renderTableRows(data.grid);
       renderTotalTime(data.total_time);

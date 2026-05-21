@@ -77,7 +77,6 @@ struct StateResponse {
     mastered: usize,
     total: usize,
     grid: Vec<&'static str>,
-    enabled_tables: Vec<u8>,
     role: String,
     mode: String,
     total_time: f64,
@@ -126,12 +125,6 @@ struct StateQuery {
     mode: Mode,
 }
 
-#[derive(Deserialize)]
-struct SetTablesRequest {
-    enabled: Vec<u8>,
-    #[serde(default)]
-    mode: Mode,
-}
 
 #[derive(Deserialize)]
 struct AnswerRequest {
@@ -156,7 +149,6 @@ struct AnswerResponse {
     mastered: usize,
     total: usize,
     grid: Vec<&'static str>,
-    enabled_tables: Vec<u8>,
     mode: String,
     total_time: f64,
     total_answers: u32,
@@ -567,11 +559,6 @@ fn correct_in_last_10m(sr: &SpacedRepetition) -> u32 {
 fn pick_problem(sr: &SpacedRepetition, last: Option<&Problem>) -> ProblemDto {
     use rand::seq::SliceRandom;
 
-    let enabled = sr.enabled_problem_list();
-    if enabled.is_empty() {
-        return ProblemDto { a: 1, b: 1 };
-    }
-
     struct Entry {
         problem: Problem,
         errors_in_last_5: u32,
@@ -579,19 +566,22 @@ fn pick_problem(sr: &SpacedRepetition, last: Option<&Problem>) -> ProblemDto {
         last_asked_at_secs: Option<i64>,
     }
 
-    let mut all: Vec<Entry> = enabled
-        .iter()
-        .filter_map(|p| {
-            let stats = sr.get_stats(p)?;
+    let mut all: Vec<Entry> = sr
+        .all_stats()
+        .map(|stats| {
             let correct_times = stats.recent_correct_times();
-            Some(Entry {
-                problem: *p,
+            Entry {
+                problem: stats.problem,
                 errors_in_last_5: stats.errors_in_last_5(),
                 estimated_time: estimate_response_time(&correct_times),
                 last_asked_at_secs: stats.last_asked_at_secs(),
-            })
+            }
         })
         .collect();
+
+    if all.is_empty() {
+        return ProblemDto { a: 1, b: 1 };
+    }
 
     // Sort: most errors first, then slowest estimated time first.
     all.sort_by(|a, b| {
@@ -945,9 +935,8 @@ async fn get_state(
     Ok(Json(StateResponse {
         problem,
         mastered: sr.mastered_count(),
-        total: sr.enabled_problems(),
+        total: sr.total_problems(),
         grid,
-        enabled_tables: sr.get_enabled_tables(),
         role,
         mode: mode_str,
         total_time: sr.compute_total_time(),
@@ -1005,9 +994,8 @@ async fn submit_answer(
         correct_answer,
         next_problem: next,
         mastered: sr.mastered_count(),
-        total: sr.enabled_problems(),
+        total: sr.total_problems(),
         grid,
-        enabled_tables: sr.get_enabled_tables(),
         mode: mode_str,
         total_time: sr.cached_total_time(),
         total_answers: sr.total_answers(),
@@ -1015,44 +1003,6 @@ async fn submit_answer(
     }))
 }
 
-async fn set_enabled_tables(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Json(req): Json<SetTablesRequest>,
-) -> AppResult<StateResponse> {
-    let user_id = authenticate(&state.db, &headers)
-        .await
-        .ok_or_else(|| app_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
-
-    let mode = req.mode;
-    let mut sr = load_user_data(&state.db, &state.responses_dir, user_id, mode).await?;
-    sr.set_enabled_tables(req.enabled);
-    save_user_state(&state.db, user_id, mode, &sr).await?;
-
-    let role = get_user_role(&state.db, user_id).await?;
-    let problem = pick_problem(&sr, None);
-    let (grid, mode_str) = match mode {
-        Mode::Addition => (sr.grid_status_sized(10), "addition".to_string()),
-        Mode::Subtraction => (sr.grid_status_sized(10), "subtraction".to_string()),
-        Mode::TimesTables => (sr.grid_status(), "times_tables".to_string()),
-    };
-    let (last_race_ms, best_race_ms) = get_race_stats(&state.db, user_id, &mode_str).await?;
-
-    Ok(Json(StateResponse {
-        problem,
-        mastered: sr.mastered_count(),
-        total: sr.enabled_problems(),
-        grid,
-        enabled_tables: sr.get_enabled_tables(),
-        role,
-        mode: mode_str,
-        total_time: sr.compute_total_time(),
-        total_answers: sr.total_answers(),
-        last_race_ms,
-        best_race_ms,
-        correct_10m: correct_in_last_10m(&sr),
-    }))
-}
 
 #[derive(Deserialize, Default)]
 struct ResetRequest {
@@ -1152,7 +1102,7 @@ async fn get_teacher_students(
         let data: Option<String> = row.try_get("data").ok().flatten();
         let (mastered, total) = data
             .and_then(|d| serde_json::from_str::<SpacedRepetition>(&d).ok())
-            .map(|sr| (sr.mastered_count(), sr.enabled_problems()))
+            .map(|sr| (sr.mastered_count(), sr.total_problems()))
             .unwrap_or((0, 0));
         let (last_answered_secs, correct, tot) =
             load_student_activity(&state.responses_dir, student_id).await;
@@ -1735,8 +1685,7 @@ async fn main() {
         .route("/api/state", get(get_state))
         .route("/api/answer", post(submit_answer))
         .route("/api/reset", post(reset_progress))
-        .route("/api/tables", post(set_enabled_tables))
-        .route("/api/config", get(get_config))
+.route("/api/config", get(get_config))
         .route("/api/race", post(record_race))
         .route("/api/teacher/invite", get(get_teacher_invite))
         .route("/api/teacher/students", get(get_teacher_students))
