@@ -43,6 +43,19 @@ Then open [http://localhost:3000](http://localhost:3000).
 | `BASE_URL` | OAuth redirect URI base (default: `http://localhost:3000`) |
 | `DATA_DIR` | SQLite DB directory (default: `~/.local/share/times_tables_server/`) |
 
+## Data storage
+
+All data lives under the directory controlled by `DATA_DIR` (default: `~/.local/share/times_tables_server/` on Linux).
+
+| Path | Contents |
+|------|----------|
+| `db.sqlite` | Users, sessions, and per-user spaced-repetition state (JSON blob per mode) |
+| `responses/<user_id>/times_tables/<a>x<b>.csv` | Per-problem answer log for times tables |
+| `responses/<user_id>/addition/<a>+<b>.csv` | Per-problem answer log for addition |
+| `responses/<user_id>/subtraction/<a>+<b>.csv` | Per-problem answer log for subtraction |
+
+Each CSV row is `timestamp,elapsed_secs,answer,correct`.
+
 ## Deployment
 
 Deployed on [Fly.io](https://fly.io). Push to `master` triggers an automatic deploy via GitHub Actions.
