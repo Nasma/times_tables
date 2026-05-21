@@ -30,9 +30,9 @@ Cargo workspace with two crates:
 
 ### Spaced repetition logic (`core/`)
 
-`ProblemStats` tracks per-problem state: `ease_factor` (starts 2.5), `interval_days`, and `consecutive_correct`. On a correct answer the interval multiplies by the ease factor and the ease factor increases by 0.05–0.15 based on response time (<3s / 3–8s / >8s). On a wrong answer the interval resets to 0 and ease factor drops by 0.2 (floor 1.3). A problem is **mastered** when `consecutive_correct >= 3` and `ease_factor >= 2.0`.
+`ProblemStats` tracks per-problem state: `times_correct`, `consecutive_correct`, `best_tier`, `consecutive_fast_correct`, and a `responses` history (last 100, loaded from CSV). A problem is **mastered** when `consecutive_correct >= 3`.
 
-`SpacedRepetition` manages the full set of 1×1 through 12×12 problems and progressive table unlocking. Tables unlock in a fixed pedagogical order (`[1, 10, 5, 11, 2, 3, 9, 4, 6, 7, 8, 12]`); the next table unlocks when 75% of currently unlocked problems are mastered. `get_next_problem()` returns the due problem with the lowest ease factor; `get_extra_practice_problem()` is used when nothing is due (sorts all unlocked by ease factor).
+`SpacedRepetition` manages the full set of problems. Problem selection (in the server's `pick_problem`) prioritises by errors in the last 5 answers, then by estimated response time (weighted recent average, worst outlier discarded). A small random pool adds variety.
 
 ### Server (`server/src/main.rs`)
 
