@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::collections::HashMap;
 use tt_core::{problem::{estimate_response_time, estimate_response_time_sd, generate_addition_problems, generate_all_problems, Problem}, spaced_rep::SpacedRepetition};
 use chrono::DateTime;
 
@@ -66,24 +67,28 @@ struct TokenResponse {
 }
 
 #[derive(Serialize)]
-struct ProblemDto {
-    a: u8,
-    b: u8,
+struct RecentResponseDto {
+    correct: bool,
+    elapsed_secs: f64,
+    answered_at_secs: i64,
+}
+
+#[derive(Serialize)]
+struct ProblemStatsDto {
+    consecutive_correct: u32,
+    best_tier: u8,
+    consecutive_fast_correct: u32,
+    times_correct: u32,
+    recent_responses: Vec<RecentResponseDto>,
 }
 
 #[derive(Serialize)]
 struct StateResponse {
-    problem: ProblemDto,
-    mastered: usize,
-    total: usize,
-    grid: Vec<&'static str>,
     role: String,
     mode: String,
-    total_time: f64,
-    total_answers: u32,
     last_race_ms: Option<i64>,
     best_race_ms: Option<i64>,
-    correct_10m: u32,
+    problems: HashMap<String, ProblemStatsDto>,
 }
 
 #[derive(Serialize)]
@@ -135,6 +140,7 @@ struct AnswerRequest {
     elapsed_secs: f64,
     #[serde(default)]
     mode: Mode,
+    answered_at_secs: Option<i64>,
 }
 
 fn default_elapsed() -> f64 {
@@ -145,14 +151,6 @@ fn default_elapsed() -> f64 {
 struct AnswerResponse {
     correct: bool,
     correct_answer: u32,
-    next_problem: ProblemDto,
-    mastered: usize,
-    total: usize,
-    grid: Vec<&'static str>,
-    mode: String,
-    total_time: f64,
-    total_answers: u32,
-    correct_10m: u32,
 }
 
 #[derive(Deserialize)]
@@ -546,79 +544,26 @@ async fn append_response(
     Ok(())
 }
 
-fn correct_in_last_10m(sr: &SpacedRepetition) -> u32 {
-    let cutoff = Utc::now().timestamp() - 600;
-    sr.all_stats()
-        .flat_map(|s| s.responses.iter())
-        .filter(|r| r.correct && r.answered_at_secs >= cutoff)
-        .count() as u32
-}
-
-// ── Problem selection ─────────────────────────────────────────────────────────
-
-fn pick_problem(sr: &SpacedRepetition, last: Option<&Problem>) -> ProblemDto {
-    use rand::seq::SliceRandom;
-
-    struct Entry {
-        problem: Problem,
-        errors_in_last_5: u32,
-        estimated_time: f64,
-        last_asked_at_secs: Option<i64>,
-    }
-
-    let mut all: Vec<Entry> = sr
-        .all_stats()
-        .map(|stats| {
-            let correct_times = stats.recent_correct_times();
-            Entry {
-                problem: stats.problem,
-                errors_in_last_5: stats.errors_in_last_5(),
-                estimated_time: estimate_response_time(&correct_times),
-                last_asked_at_secs: stats.last_asked_at_secs(),
-            }
+fn build_problems_dto(sr: &SpacedRepetition) -> HashMap<String, ProblemStatsDto> {
+    sr.all_stats().map(|stats| {
+        let key = format!("{}x{}", stats.problem.a, stats.problem.b);
+        let recent_responses = stats.responses.iter()
+            .rev().take(20).collect::<Vec<_>>()
+            .into_iter().rev()
+            .map(|r| RecentResponseDto {
+                correct: r.correct,
+                elapsed_secs: r.elapsed_secs,
+                answered_at_secs: r.answered_at_secs,
+            })
+            .collect();
+        (key, ProblemStatsDto {
+            consecutive_correct: stats.consecutive_correct,
+            best_tier: stats.best_tier,
+            consecutive_fast_correct: stats.consecutive_fast_correct,
+            times_correct: stats.times_correct,
+            recent_responses,
         })
-        .collect();
-
-    if all.is_empty() {
-        return ProblemDto { a: 1, b: 1 };
-    }
-
-    // Sort: most errors first, then slowest estimated time first.
-    all.sort_by(|a, b| {
-        b.errors_in_last_5.cmp(&a.errors_in_last_5).then(
-            b.estimated_time
-                .partial_cmp(&a.estimated_time)
-                .unwrap_or(std::cmp::Ordering::Equal),
-        )
-    });
-
-    // Candidate pool: top 9 by priority + the least-recently-asked problem.
-    let mut candidates: Vec<Problem> = all.iter().take(9).map(|e| e.problem).collect();
-
-    if let Some(oldest) = all.iter().min_by_key(|e| e.last_asked_at_secs) {
-        if !candidates.contains(&oldest.problem) {
-            candidates.push(oldest.problem);
-        }
-    }
-
-    // Prefer not to repeat the last problem shown.
-    let pool: Vec<Problem> = if candidates.len() > 1 {
-        candidates
-            .iter()
-            .copied()
-            .filter(|p| last.map_or(true, |l| p != l))
-            .collect()
-    } else {
-        candidates.clone()
-    };
-    let pool = if pool.is_empty() { candidates } else { pool };
-
-    let chosen = pool
-        .choose(&mut rand::thread_rng())
-        .copied()
-        .unwrap_or(Problem::new(1, 1));
-
-    ProblemDto { a: chosen.a, b: chosen.b }
+    }).collect()
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
@@ -923,27 +868,20 @@ async fn get_state(
     let mode = params.mode;
     let sr = load_user_data(&state.db, &state.responses_dir, user_id, mode).await?;
     let role = get_user_role(&state.db, user_id).await?;
-    let problem = pick_problem(&sr, None);
-    let (grid, mode_str) = match mode {
-        Mode::Addition => (sr.grid_status_sized(10), "addition".to_string()),
-        Mode::Subtraction => (sr.grid_status_sized(10), "subtraction".to_string()),
-        Mode::TimesTables => (sr.grid_status(), "times_tables".to_string()),
-    };
+    let mode_str = match mode {
+        Mode::Addition => "addition",
+        Mode::Subtraction => "subtraction",
+        Mode::TimesTables => "times_tables",
+    }.to_string();
 
     let (last_race_ms, best_race_ms) = get_race_stats(&state.db, user_id, &mode_str).await?;
 
     Ok(Json(StateResponse {
-        problem,
-        mastered: sr.mastered_count(),
-        total: sr.total_problems(),
-        grid,
         role,
         mode: mode_str,
-        total_time: sr.compute_total_time(),
-        total_answers: sr.total_answers(),
         last_race_ms,
         best_race_ms,
-        correct_10m: correct_in_last_10m(&sr),
+        problems: build_problems_dto(&sr),
     }))
 }
 
@@ -967,40 +905,16 @@ async fn submit_answer(
     };
     let correct = req.answer == correct_answer;
 
+    let answered_at = req.answered_at_secs
+        .and_then(|s| DateTime::from_timestamp(s, 0).map(|dt| dt.with_timezone(&Utc)))
+        .unwrap_or_else(Utc::now);
+    let line = format!("{},{},{},{}", answered_at.to_rfc3339(), req.elapsed_secs, req.answer, correct as u8);
+    append_response(&state.responses_dir, user_id, mode, req.a, req.b, &line).await?;
+
     sr.record_answer(&problem, correct, req.elapsed_secs);
     save_user_state(&state.db, user_id, mode, &sr).await?;
 
-    let now = Utc::now();
-    let line = format!("{},{},{},{}", now.to_rfc3339(), req.elapsed_secs, req.answer, correct as u8);
-    append_response(&state.responses_dir, user_id, mode, req.a, req.b, &line).await?;
-
-    if let Some(stats) = sr.get_stats_mut(&problem) {
-        stats.add_response(tt_core::problem::ResponseRecord {
-            answered_at_secs: now.timestamp(),
-            elapsed_secs: req.elapsed_secs,
-            correct,
-        });
-    }
-
-    let next = pick_problem(&sr, Some(&problem));
-    let (grid, mode_str) = match mode {
-        Mode::Addition => (sr.grid_status_sized(10), "addition".to_string()),
-        Mode::Subtraction => (sr.grid_status_sized(10), "subtraction".to_string()),
-        Mode::TimesTables => (sr.grid_status(), "times_tables".to_string()),
-    };
-
-    Ok(Json(AnswerResponse {
-        correct,
-        correct_answer,
-        next_problem: next,
-        mastered: sr.mastered_count(),
-        total: sr.total_problems(),
-        grid,
-        mode: mode_str,
-        total_time: sr.cached_total_time(),
-        total_answers: sr.total_answers(),
-        correct_10m: correct_in_last_10m(&sr),
-    }))
+    Ok(Json(AnswerResponse { correct, correct_answer }))
 }
 
 

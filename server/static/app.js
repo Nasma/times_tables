@@ -3,13 +3,16 @@
 // ── State ─────────────────────────────────────────────────────────────────────
 
 const state = {
-  problem: null,           // { a, b }
+  problem: null,
   awaitingCorrection: false,
   correctAnswer: null,
-  pendingNextProblem: null, // next problem to show after correction
+  pendingNextProblem: null,
   problemStartMs: 0,
   role: 'student',
   mode: localStorage.getItem('mode') || 'times_tables',
+  problems: {},   // "AxB" → { consecutiveCorrect, bestTier, consecutiveFastCorrect, timesCorrect, recentResponses[] }
+  lastRaceMs: null,
+  bestRaceMs: null,
   race: {
     active: false,
     queue: [],
@@ -71,15 +74,11 @@ const noStudentsMsg   = $('no-students-msg');
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
-function getToken() {
-  return localStorage.getItem('token');
-}
-
+function getToken() { return localStorage.getItem('token'); }
 function authHeaders() {
   const t = getToken();
   return t ? { 'Authorization': `Bearer ${t}` } : {};
 }
-
 async function apiPost(path, body) {
   return fetch(path, {
     method: 'POST',
@@ -87,9 +86,230 @@ async function apiPost(path, body) {
     body: JSON.stringify(body),
   });
 }
-
 async function apiGet(path) {
   return fetch(path, { headers: authHeaders() });
+}
+
+// ── Local storage helpers ─────────────────────────────────────────────────────
+
+function cacheKey() { return `tt_problems_${state.mode}`; }
+const QUEUE_KEY = 'tt_answer_queue';
+
+function saveProblems() {
+  try { localStorage.setItem(cacheKey(), JSON.stringify(state.problems)); } catch (_) {}
+}
+function loadCachedProblems() {
+  try { return JSON.parse(localStorage.getItem(cacheKey())); } catch (_) { return null; }
+}
+function loadQueue() {
+  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch (_) { return []; }
+}
+function saveQueue(q) {
+  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch (_) {}
+}
+
+// ── Problem key ───────────────────────────────────────────────────────────────
+
+function pkey(a, b) { return `${a}x${b}`; }
+
+// ── Algorithms (ported from Rust core) ───────────────────────────────────────
+
+// Weighted average of recent correct times, discarding the worst outlier.
+// most-recent-first input; returns estimated seconds.
+function estimateTime(recentCorrect) {
+  const MAX = 10;
+  if (!recentCorrect.length) return MAX;
+  if (recentCorrect.length === 1) return Math.min(MAX, recentCorrect[0]);
+  const c = recentCorrect.slice(0, 5);
+  const wi = c.reduce((mi, v, i, a) => v > a[mi] ? i : mi, 0);
+  const r = c.filter((_, i) => i !== wi);
+  const k = r.length;
+  let ws = 0, tw = 0;
+  r.forEach((t, i) => { const w = k - i; ws += w * t; tw += w; });
+  return Math.min(MAX, ws / tw);
+}
+
+// Penalty-adjusted time score (avg correct / fraction correct) over last 5.
+function correctTime(ps) {
+  const MAX = 10;
+  const last5 = ps.recentResponses.slice(-5);
+  if (!last5.length) return MAX;
+  const correct = last5.filter(r => r.correct);
+  if (!correct.length) return MAX;
+  const avg = correct.reduce((s, r) => s + r.elapsedSecs, 0) / correct.length;
+  return Math.min(MAX, avg / (correct.length / last5.length));
+}
+
+function pickProblem(last) {
+  const dim = state.mode === 'times_tables' ? 12 : 10;
+  const entries = [];
+  for (let a = 1; a <= dim; a++) {
+    for (let b = 1; b <= dim; b++) {
+      const ps = state.problems[pkey(a, b)];
+      if (!ps) continue;
+      const last5 = ps.recentResponses.slice(-5);
+      const errorsInLast5 = last5.filter(r => !r.correct).length;
+      const recentCorrect = ps.recentResponses.slice().reverse().filter(r => r.correct).map(r => r.elapsedSecs);
+      const lastAskedAt = ps.recentResponses.length ? ps.recentResponses[ps.recentResponses.length - 1].answeredAtSecs : null;
+      entries.push({ a, b, errorsInLast5, estimatedTime: estimateTime(recentCorrect), lastAskedAt });
+    }
+  }
+  if (!entries.length) return { a: 1, b: 1 };
+
+  entries.sort((x, y) => (y.errorsInLast5 - x.errorsInLast5) || (y.estimatedTime - x.estimatedTime));
+
+  let candidates = entries.slice(0, 9).map(e => ({ a: e.a, b: e.b }));
+  const oldest = entries.slice().sort((x, y) => {
+    if (x.lastAskedAt === null) return -1;
+    if (y.lastAskedAt === null) return 1;
+    return x.lastAskedAt - y.lastAskedAt;
+  })[0];
+  if (!candidates.some(c => c.a === oldest.a && c.b === oldest.b)) candidates.push({ a: oldest.a, b: oldest.b });
+
+  let pool = candidates.length > 1
+    ? candidates.filter(c => !last || c.a !== last.a || c.b !== last.b)
+    : candidates;
+  if (!pool.length) pool = candidates;
+
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function recordAnswer(a, b, correct, elapsedSecs) {
+  const ps = state.problems[pkey(a, b)];
+  if (!ps) return;
+  const isFastStreak = elapsedSecs < 2.0;
+  const isFastTier   = elapsedSecs < 3.0;
+  if (correct) {
+    ps.timesCorrect++;
+    ps.consecutiveCorrect++;
+    ps.consecutiveFastCorrect = isFastStreak ? ps.consecutiveFastCorrect + 1 : 0;
+  } else {
+    ps.consecutiveCorrect = 0;
+    ps.consecutiveFastCorrect = 0;
+  }
+  if (ps.timesCorrect > 0)            ps.bestTier = Math.max(ps.bestTier, 1);
+  if (ps.consecutiveCorrect >= 3)     ps.bestTier = Math.max(ps.bestTier, 2);
+  if (ps.bestTier >= 2 && correct && isFastTier) ps.bestTier = Math.max(ps.bestTier, 3);
+  if (ps.consecutiveFastCorrect >= 3) ps.bestTier = Math.max(ps.bestTier, 4);
+  ps.recentResponses.push({ correct, elapsedSecs, answeredAtSecs: Math.floor(Date.now() / 1000) });
+  if (ps.recentResponses.length > 100) ps.recentResponses.shift();
+}
+
+function correctAnswer(a, b) {
+  if (state.mode === 'addition')    return a + b;
+  if (state.mode === 'subtraction') return b;
+  return a * b;
+}
+
+// ── Derived state ─────────────────────────────────────────────────────────────
+
+function computeGrid() {
+  const dim = state.mode === 'times_tables' ? 12 : 10;
+  const tiers = ['not_started', 'learning', 'solid', 'fast', 'mastered'];
+  const grid = [];
+  for (let a = 1; a <= dim; a++)
+    for (let b = 1; b <= dim; b++) {
+      const ps = state.problems[pkey(a, b)];
+      grid.push(ps ? (tiers[ps.bestTier] || 'not_started') : 'not_started');
+    }
+  return grid;
+}
+
+function computeMastered() {
+  return Object.values(state.problems).filter(ps => ps.consecutiveCorrect >= 3).length;
+}
+
+function computeTotalTime() {
+  return Object.values(state.problems).reduce((s, ps) => s + correctTime(ps), 0);
+}
+
+function computeCorrect10m() {
+  const cutoff = Math.floor(Date.now() / 1000) - 600;
+  return Object.values(state.problems).reduce((s, ps) =>
+    s + ps.recentResponses.filter(r => r.correct && r.answeredAtSecs >= cutoff).length, 0);
+}
+
+// ── Render helpers ────────────────────────────────────────────────────────────
+
+const TIER_VAL = { not_started: 0, learning: 1, solid: 2, fast: 3, mastered: 4 };
+
+function renderTableRows(grid) {
+  const dim = state.mode === 'times_tables' ? 12 : 10;
+  const opSymbol = state.mode === 'times_tables' ? '×' : (state.mode === 'subtraction' ? '−' : '+');
+  tableRowsEl.innerHTML = '';
+  for (let n = 1; n <= dim; n++) {
+    const tiers = grid.slice((n - 1) * dim, n * dim).map(s => TIER_VAL[s]);
+    const min = Math.min(...tiers);
+    const countSolid    = tiers.filter(t => t >= 2).length;
+    const countFast     = tiers.filter(t => t >= 3).length;
+    const countMastered = tiers.filter(t => t >= 4).length;
+    const row = document.createElement('div');
+    row.className = 'table-row';
+    const lbl = document.createElement('span');
+    lbl.className = 'table-row-label';
+    lbl.textContent = `${n}${opSymbol}`;
+    row.appendChild(lbl);
+    const milestones = [];
+    let counterText = '';
+    if (min >= 2) milestones.push('solid');
+    if (min >= 3) milestones.push('fast');
+    if (min >= 4) milestones.push('mastered');
+    if (min < 2)      counterText = `${countSolid}/${dim} solid`;
+    else if (min < 3) counterText = `${countFast}/${dim} fast`;
+    else if (min < 4) counterText = `${countMastered}/${dim} mastered`;
+    for (const m of milestones) {
+      const badge = document.createElement('span');
+      badge.className = `table-milestone ${m}`;
+      badge.textContent = m.charAt(0).toUpperCase() + m.slice(1);
+      row.appendChild(badge);
+    }
+    if (counterText) {
+      const counter = document.createElement('span');
+      counter.className = 'table-counter';
+      counter.textContent = counterText;
+      row.appendChild(counter);
+    }
+    tableRowsEl.appendChild(row);
+  }
+}
+
+function renderGrid(grid) {
+  const dim = state.mode === 'times_tables' ? 12 : 10;
+  progressGrid.innerHTML = '';
+  progressGrid.style.setProperty('--grid-cols', dim);
+  grid.forEach((status, i) => {
+    const a = Math.floor(i / dim) + 1;
+    const b = (i % dim) + 1;
+    const cell = document.createElement('div');
+    cell.className = `grid-cell ${status}`;
+    if (state.mode === 'subtraction')   cell.title = `${a + b} − ${a} = ${b}`;
+    else if (state.mode === 'addition') cell.title = `${a} + ${b} = ${a + b}`;
+    else                                cell.title = `${a} × ${b} = ${a * b}`;
+    progressGrid.appendChild(cell);
+  });
+}
+
+function renderCorrect10m(n) {
+  $('correct-10m-label').textContent = `${n} correct in the last 10 minutes`;
+}
+
+function renderTotalTime(totalTime) {
+  const secs = Math.round(totalTime);
+  const m = Math.floor(secs / 60), s = secs % 60;
+  totalTimeValue.textContent = m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function renderLastRaceTime(lastMs, bestMs) {
+  raceLastTimeEl.textContent = lastMs != null ? formatRaceTime(lastMs) : '—';
+  raceBestTimeEl.textContent = bestMs != null ? formatRaceTime(bestMs) : '—';
+}
+
+function refreshUI() {
+  const grid = computeGrid();
+  renderGrid(grid);
+  renderTableRows(grid);
+  renderTotalTime(computeTotalTime());
+  renderCorrect10m(computeCorrect10m());
 }
 
 // ── View helpers ──────────────────────────────────────────────────────────────
@@ -102,9 +322,7 @@ function showAuth() {
 }
 
 function updateModeUI() {
-  modeToggle.querySelectorAll('input[name="mode"]').forEach(r => {
-    r.checked = r.value === state.mode;
-  });
+  modeToggle.querySelectorAll('input[name="mode"]').forEach(r => { r.checked = r.value === state.mode; });
   const headings = {
     addition:     'Efficient Addition Practice',
     subtraction:  'Efficient Subtraction Practice',
@@ -140,11 +358,11 @@ function showNormalMode() {
   answerInput.focus();
 }
 
-function showCorrectionMode(userAnswer, correctAnswer, nextProblem) {
+function showCorrectionMode(userAnswer, correct, nextProblem) {
   state.awaitingCorrection = true;
-  state.correctAnswer = correctAnswer;
+  state.correctAnswer = correct;
   state.pendingNextProblem = nextProblem;
-  incorrectMsg.textContent = `${userAnswer} is wrong. Type the answer: ${correctAnswer}`;
+  incorrectMsg.textContent = `${userAnswer} is wrong. Type the answer: ${correct}`;
   normalMode.classList.add('hidden');
   correctionMode.classList.remove('hidden');
   correctionInput.value = '';
@@ -163,70 +381,6 @@ function displayProblem(problem) {
   showNormalMode();
 }
 
-
-const TIER_VAL = { not_started: 0, learning: 1, solid: 2, fast: 3, mastered: 4 };
-
-function renderTableRows(grid) {
-  const dim = state.mode === 'times_tables' ? 12 : 10;
-  const opSymbol = state.mode === 'times_tables' ? '×' : (state.mode === 'subtraction' ? '−' : '+');
-
-  tableRowsEl.innerHTML = '';
-  for (let n = 1; n <= dim; n++) {
-    const tiers = grid.slice((n - 1) * dim, n * dim).map(s => TIER_VAL[s]);
-    const min = Math.min(...tiers);
-    const countSolid    = tiers.filter(t => t >= 2).length;
-    const countFast     = tiers.filter(t => t >= 3).length;
-    const countMastered = tiers.filter(t => t >= 4).length;
-
-    const row = document.createElement('div');
-    row.className = 'table-row';
-
-    const lbl = document.createElement('span');
-    lbl.className = 'table-row-label';
-    lbl.textContent = `${n}${opSymbol}`;
-    row.appendChild(lbl);
-
-    const milestones = [];
-    let counterText = '';
-    if (min >= 2) milestones.push('solid');
-    if (min >= 3) milestones.push('fast');
-    if (min >= 4) milestones.push('mastered');
-
-    if (min < 2)      counterText = `${countSolid}/${dim} solid`;
-    else if (min < 3) counterText = `${countFast}/${dim} fast`;
-    else if (min < 4) counterText = `${countMastered}/${dim} mastered`;
-
-    for (const m of milestones) {
-      const badge = document.createElement('span');
-      badge.className = `table-milestone ${m}`;
-      badge.textContent = m.charAt(0).toUpperCase() + m.slice(1);
-      row.appendChild(badge);
-    }
-
-    if (counterText) {
-      const counter = document.createElement('span');
-      counter.className = 'table-counter';
-      counter.textContent = counterText;
-      row.appendChild(counter);
-    }
-
-    tableRowsEl.appendChild(row);
-  }
-}
-
-
-function renderCorrect10m(n) {
-  $('correct-10m-label').textContent = `${n} correct in the last 10 minutes`;
-}
-
-function renderTotalTime(totalTime) {
-  const secs = Math.round(totalTime);
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  totalTimeValue.textContent = m > 0 ? `${m}m ${s}s` : `${s}s`;
-
-}
-
 // ── Race mode ─────────────────────────────────────────────────────────────────
 
 function formatRaceTime(ms) {
@@ -238,20 +392,12 @@ function formatRaceTime(ms) {
     : `${secs}.${tenths}`;
 }
 
-function renderLastRaceTime(lastMs, bestMs) {
-  raceLastTimeEl.textContent = lastMs != null ? formatRaceTime(lastMs) : '—';
-  raceBestTimeEl.textContent = bestMs != null ? formatRaceTime(bestMs) : '—';
-}
-
 function buildRaceQueue() {
   const dim = state.mode === 'times_tables' ? 12 : 10;
   const problems = [];
-  for (let a = 1; a <= dim; a++) {
-    for (let b = 1; b <= dim; b++) {
+  for (let a = 1; a <= dim; a++)
+    for (let b = 1; b <= dim; b++)
       problems.push({ a, b });
-    }
-  }
-  // Fisher-Yates shuffle
   for (let i = problems.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [problems[i], problems[j]] = [problems[j], problems[i]];
@@ -260,25 +406,22 @@ function buildRaceQueue() {
 }
 
 function startRace() {
-  state.race.queue         = buildRaceQueue();
+  state.race.queue          = buildRaceQueue();
   state.race.totalQuestions = state.race.queue.length;
-  state.race.active        = true;
-  state.race.startMs       = Date.now();
-  state.awaitingCorrection = false;
-
+  state.race.active         = true;
+  state.race.startMs        = Date.now();
+  state.awaitingCorrection  = false;
   document.body.classList.add('race-active');
   practiceHeading.textContent = 'Race Mode';
   raceInfoEl.classList.remove('hidden');
   startRaceBtn.classList.add('hidden');
   raceCancelBtn.classList.remove('hidden');
-
   state.race.timerInterval = setInterval(() => {
     const elapsed = Date.now() - state.race.startMs;
     raceTimerEl.textContent = formatRaceTime(elapsed);
     const done = state.race.totalQuestions - state.race.queue.length;
     raceProgressEl.textContent = `${done} / ${state.race.totalQuestions}`;
   }, 100);
-
   nextRaceProblem();
 }
 
@@ -299,80 +442,107 @@ async function finishRace() {
   clearInterval(state.race.timerInterval);
   state.race.active = false;
   state.race.queue  = [];
-
   document.body.classList.remove('race-active');
   raceInfoEl.classList.add('hidden');
   startRaceBtn.classList.remove('hidden');
   raceCancelBtn.classList.add('hidden');
   updateModeUI();
-
-  const res = await apiPost('/api/race', { mode: state.mode, elapsed_ms: elapsed });
-  if (res.ok) {
-    const data = await res.json();
-    renderLastRaceTime(data.last_race_ms, data.best_race_ms);
-  }
-
-  await loadState();
+  try {
+    const res = await apiPost('/api/race', { mode: state.mode, elapsed_ms: elapsed });
+    if (res.ok) {
+      const data = await res.json();
+      state.lastRaceMs = data.last_race_ms;
+      state.bestRaceMs = data.best_race_ms;
+      renderLastRaceTime(data.last_race_ms, data.best_race_ms);
+    }
+  } catch (_) {}
+  refreshUI();
+  state.problem = pickProblem(null);
+  displayProblem(state.problem);
 }
 
 function nextRaceProblem() {
-  if (state.race.queue.length === 0) {
-    finishRace();
-    return;
-  }
+  if (state.race.queue.length === 0) { finishRace(); return; }
   state.race.currentProblem = state.race.queue.shift();
   displayProblem(state.race.currentProblem);
 }
 
-function renderGrid(grid) {
-  const dim = state.mode === 'times_tables' ? 12 : 10;
-  progressGrid.innerHTML = '';
-  progressGrid.style.setProperty('--grid-cols', dim);
-  grid.forEach((status, i) => {
-    const a = Math.floor(i / dim) + 1;
-    const b = (i % dim) + 1;
-    const cell = document.createElement('div');
-    cell.className = `grid-cell ${status}`;
-    if (state.mode === 'subtraction') {
-      cell.title = `${a + b} − ${a} = ${b}`;
-    } else if (state.mode === 'addition') {
-      cell.title = `${a} + ${b} = ${a + b}`;
-    } else {
-      cell.title = `${a} × ${b} = ${a * b}`;
-    }
-    progressGrid.appendChild(cell);
-  });
+// ── Offline queue ─────────────────────────────────────────────────────────────
+
+async function flushQueue() {
+  let q = loadQueue();
+  while (q.length) {
+    try {
+      const res = await apiPost('/api/answer', q[0]);
+      if (!res.ok) break;
+      q.shift();
+      saveQueue(q);
+    } catch (_) { break; }
+  }
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
+window.addEventListener('online', flushQueue);
+
+// Post answer to server in background; queue on failure.
+function postAnswer(a, b, answer, elapsedSecs) {
+  const payload = { a, b, answer, elapsed_secs: elapsedSecs, mode: state.mode, answered_at_secs: Math.floor(Date.now() / 1000) };
+  apiPost('/api/answer', payload).then(res => {
+    if (res.ok) flushQueue();
+    else        { const q = loadQueue(); q.push(payload); saveQueue(q); }
+  }).catch(() => { const q = loadQueue(); q.push(payload); saveQueue(q); });
+}
+
+// ── Load state ────────────────────────────────────────────────────────────────
+
+function initProblems(serverProblems) {
+  state.problems = {};
+  for (const [key, sp] of Object.entries(serverProblems)) {
+    state.problems[key] = {
+      consecutiveCorrect:      sp.consecutive_correct,
+      bestTier:                sp.best_tier,
+      consecutiveFastCorrect:  sp.consecutive_fast_correct,
+      timesCorrect:            sp.times_correct,
+      recentResponses: sp.recent_responses.map(r => ({
+        correct: r.correct, elapsedSecs: r.elapsed_secs, answeredAtSecs: r.answered_at_secs,
+      })),
+    };
+  }
+}
 
 async function loadState() {
-  const res = await apiGet(`/api/state?mode=${state.mode}`);
-  if (res.status === 401) {
-    localStorage.removeItem('token');
-    showAuth();
-    return;
+  let serverData = null;
+  try {
+    const res = await apiGet(`/api/state?mode=${state.mode}`);
+    if (res.status === 401) { localStorage.removeItem('token'); showAuth(); return; }
+    if (res.ok) serverData = await res.json();
+  } catch (_) {}
+
+  if (serverData) {
+    state.role = serverData.role || 'student';
+    initProblems(serverData.problems);
+    saveProblems();
+    state.lastRaceMs = serverData.last_race_ms ?? null;
+    state.bestRaceMs = serverData.best_race_ms ?? null;
+    flushQueue();
+  } else {
+    const cached = loadCachedProblems();
+    if (!cached) { showAuth(); return; }
+    state.problems = cached;
   }
-  if (!res.ok) {
-    showAuth();
-    return;
-  }
-  const data = await res.json();
-  state.role = data.role || 'student';
 
   if (state.role === 'teacher') {
     showTeacher();
     await loadTeacherData();
   } else {
-    renderGrid(data.grid);
-    renderTableRows(data.grid);
-    renderTotalTime(data.total_time);
-    renderCorrect10m(data.correct_10m ?? 0);
-    renderLastRaceTime(data.last_race_ms ?? null, data.best_race_ms ?? null);
-    displayProblem(data.problem);
+    refreshUI();
+    renderLastRaceTime(state.lastRaceMs, state.bestRaceMs);
+    state.problem = pickProblem(null);
+    displayProblem(state.problem);
     showPractice();
   }
 }
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
 
 function timeAgo(secs) {
   if (secs == null) return 'never';
@@ -394,13 +564,11 @@ async function loadTeacherData() {
     apiGet('/api/teacher/invite'),
     apiGet('/api/teacher/students'),
   ]);
-
   if (inviteRes.ok) {
     const inv = await inviteRes.json();
     inviteUrlEl.textContent = inv.join_url;
     qrContainer.innerHTML = inv.qr_svg;
   }
-
   if (studentsRes.ok) {
     const data = await studentsRes.json();
     studentListEl.innerHTML = '';
@@ -432,16 +600,11 @@ async function loadTeacherData() {
 async function doAuth(endpoint) {
   const username = usernameInput.value.trim();
   const password = passwordInput.value;
-  if (!username || !password) {
-    setAuthError('Please enter username and password.');
-    return;
-  }
+  if (!username || !password) { setAuthError('Please enter username and password.'); return; }
   setAuthError('');
-
   const body = endpoint.includes('register')
     ? { username, password, role: selectedRole }
     : { username, password };
-
   const res = await apiPost(endpoint, body);
   if (res.ok) {
     const data = await res.json();
@@ -449,15 +612,13 @@ async function doAuth(endpoint) {
     passwordInput.value = '';
     await loadState();
   } else {
-    const msg = await res.text();
-    setAuthError(msg || 'Something went wrong.');
+    setAuthError(await res.text() || 'Something went wrong.');
   }
 }
 
 loginBtn.addEventListener('click', () => doAuth('/api/login'));
 registerBtn.addEventListener('click', () => doAuth('/api/register'));
 
-// Role tabs
 roleTabs.addEventListener('click', e => {
   const tab = e.target.closest('.role-tab');
   if (!tab) return;
@@ -465,14 +626,10 @@ roleTabs.addEventListener('click', e => {
   roleTabs.querySelectorAll('.role-tab').forEach(t => t.classList.toggle('active', t === tab));
 });
 
-googleBtn.addEventListener('click', () => {
-  window.location.href = `/api/auth/google?role=${selectedRole}`;
-});
+googleBtn.addEventListener('click', () => { window.location.href = `/api/auth/google?role=${selectedRole}`; });
 
 [usernameInput, passwordInput].forEach(el => {
-  el.addEventListener('keydown', e => {
-    if (e.key === 'Enter') doAuth('/api/login');
-  });
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') doAuth('/api/login'); });
 });
 
 // ── Answer submission ─────────────────────────────────────────────────────────
@@ -482,47 +639,29 @@ async function submitAnswer() {
   const raw = answerInput.value.trim();
   if (raw === '') return;
   const answer = parseInt(raw, 10);
-  if (isNaN(answer)) {
-    answerInput.value = '';
-    return;
-  }
+  if (isNaN(answer)) { answerInput.value = ''; return; }
 
+  const { a, b } = state.problem;
   const elapsedSecs = (Date.now() - state.problemStartMs) / 1000;
+  const correct = answer === correctAnswer(a, b);
 
-  const res = await apiPost('/api/answer', {
-    a: state.problem.a,
-    b: state.problem.b,
-    answer,
-    elapsed_secs: elapsedSecs,
-    mode: state.mode,
-  });
-
-  if (res.status === 401) {
-    localStorage.removeItem('token');
-    showAuth();
-    return;
-  }
-
-  if (!res.ok) return;
-
-  const data = await res.json();
-  renderGrid(data.grid);
-  renderTableRows(data.grid);
-  renderTotalTime(data.total_time);
-  renderCorrect10m(data.correct_10m ?? 0);
+  recordAnswer(a, b, correct, elapsedSecs);
+  refreshUI();
+  saveProblems();
+  postAnswer(a, b, answer, elapsedSecs);
 
   if (state.race.active) {
-    if (data.correct) {
+    if (correct) {
       nextRaceProblem();
     } else {
-      // Wrong in race: show correction; on success the problem is reinserted
-      showCorrectionMode(answer, data.correct_answer, null);
+      showCorrectionMode(answer, correctAnswer(a, b), null);
     }
   } else {
-    if (data.correct) {
-      displayProblem(data.next_problem);
+    const next = pickProblem({ a, b });
+    if (correct) {
+      displayProblem(next);
     } else {
-      showCorrectionMode(answer, data.correct_answer, data.next_problem);
+      showCorrectionMode(answer, correctAnswer(a, b), next);
     }
   }
 }
@@ -534,25 +673,14 @@ async function checkCorrection() {
   if (typed !== state.correctAnswer) return;
 
   if (state.race.active) {
-    // Reinsert problem at random position in remaining queue
     const pos = Math.floor(Math.random() * (state.race.queue.length + 1));
     state.race.queue.splice(pos, 0, state.race.currentProblem);
-    // Submit the correct answer to the API so it counts
+    const { a, b } = state.race.currentProblem;
     const elapsedSecs = (Date.now() - state.problemStartMs) / 1000;
-    const res = await apiPost('/api/answer', {
-      a: state.race.currentProblem.a,
-      b: state.race.currentProblem.b,
-      answer: typed,
-      elapsed_secs: elapsedSecs,
-      mode: state.mode,
-    });
-    if (res.ok) {
-      const data = await res.json();
-      renderGrid(data.grid);
-      renderTableRows(data.grid);
-      renderTotalTime(data.total_time);
-      renderCorrect10m(data.correct_10m ?? 0);
-    }
+    recordAnswer(a, b, true, elapsedSecs);
+    refreshUI();
+    saveProblems();
+    postAnswer(a, b, typed, elapsedSecs);
     nextRaceProblem();
   } else {
     displayProblem(state.pendingNextProblem);
@@ -564,18 +692,10 @@ submitBtn.addEventListener('click', submitAnswer);
 function enforceNumeric(e) {
   if (e.data !== null && !/^\d+$/.test(e.data)) e.preventDefault();
 }
-
 answerInput.addEventListener('beforeinput', enforceNumeric);
 correctionInput.addEventListener('beforeinput', enforceNumeric);
-
-answerInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') submitAnswer();
-});
-
-correctionInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') checkCorrection();
-});
-
+answerInput.addEventListener('keydown', e => { if (e.key === 'Enter') submitAnswer(); });
+correctionInput.addEventListener('keydown', e => { if (e.key === 'Enter') checkCorrection(); });
 
 startRaceBtn.addEventListener('click', startRace);
 raceCancelBtn.addEventListener('click', cancelRace);
@@ -603,28 +723,16 @@ modeToggle.addEventListener('change', async e => {
 
 // ── Reset ─────────────────────────────────────────────────────────────────────
 
-resetBtn.addEventListener('click', () => {
-  resetConfirm.classList.remove('hidden');
-  resetBtn.classList.add('hidden');
-});
-
-resetCancel.addEventListener('click', () => {
-  resetConfirm.classList.add('hidden');
-  resetBtn.classList.remove('hidden');
-});
+resetBtn.addEventListener('click', () => { resetConfirm.classList.remove('hidden'); resetBtn.classList.add('hidden'); });
+resetCancel.addEventListener('click', () => { resetConfirm.classList.add('hidden'); resetBtn.classList.remove('hidden'); });
 
 resetYes.addEventListener('click', async () => {
   resetConfirm.classList.add('hidden');
   resetBtn.classList.remove('hidden');
-
   const res = await apiPost('/api/reset', { mode: state.mode });
-  if (res.status === 401) {
-    localStorage.removeItem('token');
-    showAuth();
-    return;
-  }
+  if (res.status === 401) { localStorage.removeItem('token'); showAuth(); return; }
   if (!res.ok) return;
-
+  localStorage.removeItem(cacheKey());
   await loadState();
 });
 
@@ -653,7 +761,6 @@ copyInviteBtn.addEventListener('click', () => {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
-// Handle token/error/choice passed back from OAuth redirect via URL hash
 let oauthError = null;
 const hash = window.location.hash;
 if (hash.startsWith('#token=')) {
@@ -670,7 +777,7 @@ if (hash.startsWith('#token=')) {
   const requestedRole  = p.get('requested_role');
   $('oauth-choice-msg').textContent =
     `You already have a ${existingRole} account linked to this Google account.`;
-  $('oauth-create-new').textContent  = `Create a new ${requestedRole} account`;
+  $('oauth-create-new').textContent   = `Create a new ${requestedRole} account`;
   $('oauth-use-existing').textContent = `Sign in with my ${existingRole} account`;
   $('oauth-choice-modal').classList.remove('hidden');
 
@@ -695,7 +802,6 @@ if (hash.startsWith('#token=')) {
   $('oauth-use-existing').addEventListener('click', () => completeOAuth('use_existing'));
 }
 
-// Show Google button if server has OAuth credentials configured
 fetch('/api/config')
   .then(r => r.json())
   .then(cfg => { if (cfg.google_oauth) googleAuth.classList.remove('hidden'); })
