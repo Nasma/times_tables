@@ -372,6 +372,10 @@ function cancelRace() {
   loadState();
 }
 
+const pbModal = $('pb-modal');
+const pbTimeEl = $('pb-time');
+pbModal.addEventListener('click', () => pbModal.classList.add('hidden'));
+
 async function finishRace() {
   const elapsed = Date.now() - state.race.startMs;
   clearInterval(state.race.timerInterval);
@@ -386,9 +390,14 @@ async function finishRace() {
     const res = await apiPost('/api/race', { mode: state.mode, elapsed_ms: elapsed });
     if (res.ok) {
       const data = await res.json();
+      const isPB = data.last_race_ms != null && data.last_race_ms === data.best_race_ms;
       state.lastRaceMs = data.last_race_ms;
       state.bestRaceMs = data.best_race_ms;
       renderLastRaceTime(data.last_race_ms, data.best_race_ms);
+      if (isPB) {
+        pbTimeEl.textContent = formatRaceTime(data.best_race_ms);
+        pbModal.classList.remove('hidden');
+      }
     }
   } catch (_) {}
   refreshUI();

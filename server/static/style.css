@@ -101,6 +101,24 @@ h1 {
   line-height: 1.5;
 }
 
+.pb-modal-box {
+  text-align: center;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.pb-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.pb-time {
+  font-size: 2.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary, #2563eb);
+}
+
 .modal-actions {
   display: flex;
   flex-direction: column;
