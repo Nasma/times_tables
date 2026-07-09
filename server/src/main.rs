@@ -29,7 +29,9 @@ enum Mode {
     TimesTables,
     Addition,
     Subtraction,
+    #[serde(rename = "addition_2digit")]
     Addition2Digit,
+    #[serde(rename = "subtraction_2digit")]
     Subtraction2Digit,
 }
 
