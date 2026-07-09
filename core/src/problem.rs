@@ -249,6 +249,16 @@ pub fn generate_addition_problems() -> Vec<Problem> {
     problems
 }
 
+pub fn generate_2digit_addition_problems() -> Vec<Problem> {
+    let mut problems = Vec::new();
+    for a in 11u8..=20 {
+        for b in 11u8..=20 {
+            problems.push(Problem::new(a, b));
+        }
+    }
+    problems
+}
+
 #[cfg(test)]
 mod tests {
     use super::{estimate_response_time, estimate_response_time_sd};

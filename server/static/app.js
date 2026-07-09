@@ -138,11 +138,17 @@ function correctTime(ps) {
   return Math.min(MAX, avg / (correct.length / last5.length));
 }
 
+function problemRange() {
+  if (state.mode === 'times_tables') return { min: 1, max: 12 };
+  if (state.mode === 'addition_2digit' || state.mode === 'subtraction_2digit') return { min: 11, max: 20 };
+  return { min: 1, max: 10 };
+}
+
 function pickProblem(last) {
-  const dim = state.mode === 'times_tables' ? 12 : 10;
+  const { min, max } = problemRange();
   const entries = [];
-  for (let a = 1; a <= dim; a++) {
-    for (let b = 1; b <= dim; b++) {
+  for (let a = min; a <= max; a++) {
+    for (let b = min; b <= max; b++) {
       const ps = state.problems[pkey(a, b)];
       if (!ps) continue;
       const last5 = ps.recentResponses.slice(-5);
@@ -194,8 +200,8 @@ function recordAnswer(a, b, correct, elapsedSecs) {
 }
 
 function correctAnswer(a, b) {
-  if (state.mode === 'addition')    return a + b;
-  if (state.mode === 'subtraction') return b;
+  if (state.mode === 'addition' || state.mode === 'addition_2digit') return a + b;
+  if (state.mode === 'subtraction' || state.mode === 'subtraction_2digit') return b;
   return a * b;
 }
 
@@ -259,8 +265,10 @@ function showAuth() {
 function updateModeUI() {
   modeToggle.querySelectorAll('input[name="mode"]').forEach(r => { r.checked = r.value === state.mode; });
   const headings = {
-    addition:     'Efficient Addition Practice',
-    subtraction:  'Efficient Subtraction Practice',
+    addition:           'Efficient Addition Practice',
+    subtraction:        'Efficient Subtraction Practice',
+    addition_2digit:    'Efficient 2-Digit Addition Practice',
+    subtraction_2digit: 'Efficient 2-Digit Subtraction Practice',
     times_tables: 'Efficient Times Tables Practice',
   };
   practiceHeading.textContent = headings[state.mode] || headings.times_tables;
@@ -307,10 +315,10 @@ function showCorrectionMode(userAnswer, correct, nextProblem) {
 function displayProblem(problem) {
   state.problem = problem;
   state.problemStartMs = Date.now();
-  if (state.mode === 'subtraction') {
+  if (state.mode === 'subtraction' || state.mode === 'subtraction_2digit') {
     problemText.textContent = `${problem.a + problem.b} − ${problem.a} = ?`;
   } else {
-    const op = state.mode === 'addition' ? '+' : '×';
+    const op = (state.mode === 'addition' || state.mode === 'addition_2digit') ? '+' : '×';
     problemText.textContent = `${problem.a} ${op} ${problem.b} = ?`;
   }
   showNormalMode();
@@ -328,10 +336,10 @@ function formatRaceTime(ms) {
 }
 
 function buildRaceQueue() {
-  const dim = state.mode === 'times_tables' ? 12 : 10;
+  const { min, max } = problemRange();
   const problems = [];
-  for (let a = 1; a <= dim; a++)
-    for (let b = 1; b <= dim; b++)
+  for (let a = min; a <= max; a++)
+    for (let b = min; b <= max; b++)
       problems.push({ a, b });
   for (let i = problems.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));

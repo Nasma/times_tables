@@ -1,4 +1,4 @@
-use crate::problem::{generate_addition_problems, generate_all_problems, Problem, ProblemStats};
+use crate::problem::{generate_2digit_addition_problems, generate_addition_problems, generate_all_problems, Problem, ProblemStats};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -44,6 +44,18 @@ impl SpacedRepetition {
 
     pub fn new_subtraction() -> Self {
         Self::new_addition()
+    }
+
+    pub fn new_2digit_addition() -> Self {
+        let mut stats = HashMap::new();
+        for problem in generate_2digit_addition_problems() {
+            stats.insert(problem.key(), ProblemStats::new(problem));
+        }
+        Self { stats, total_answers: 0, cached_total_time: 0.0 }
+    }
+
+    pub fn new_2digit_subtraction() -> Self {
+        Self::new_2digit_addition()
     }
 
     pub fn get_stats(&self, problem: &Problem) -> Option<&ProblemStats> {
