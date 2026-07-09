@@ -249,11 +249,15 @@ pub fn generate_addition_problems() -> Vec<Problem> {
     problems
 }
 
+/// For 2-digit modes, Problems encode a class: a = units_a (0..9),
+/// b = units_b + (if overflow { 10 } else { 0 }), giving 200 classes total.
+/// "overflow" means the sum of the two displayed 2-digit numbers is >= 100.
 pub fn generate_2digit_addition_problems() -> Vec<Problem> {
     let mut problems = Vec::new();
-    for a in 11u8..=20 {
-        for b in 11u8..=20 {
-            problems.push(Problem::new(a, b));
+    for units_a in 0u8..=9 {
+        for units_b in 0u8..=9 {
+            problems.push(Problem::new(units_a, units_b));        // no overflow
+            problems.push(Problem::new(units_a, units_b + 10));   // overflow
         }
     }
     problems

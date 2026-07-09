@@ -541,8 +541,14 @@ async fn append_response(
     let (subdir, filename) = match mode {
         Mode::Addition => ("addition", format!("{}+{}.csv", a, b)),
         Mode::Subtraction => ("subtraction", format!("{}+{}.csv", a, b)),
-        Mode::Addition2Digit => ("addition_2digit", format!("{}+{}.csv", a, b)),
-        Mode::Subtraction2Digit => ("subtraction_2digit", format!("{}+{}.csv", a, b)),
+        Mode::Addition2Digit => {
+            let overflow = (a as u32 + b as u32) >= 100;
+            ("addition_2digit", format!("{}+{}.csv", a % 10, b % 10 + if overflow { 10 } else { 0 }))
+        }
+        Mode::Subtraction2Digit => {
+            let overflow = (a as u32 + b as u32) >= 100;
+            ("subtraction_2digit", format!("{}+{}.csv", a % 10, b % 10 + if overflow { 10 } else { 0 }))
+        }
         Mode::TimesTables => ("times_tables", format!("{}x{}.csv", a, b)),
     };
     let subdir_path = user_dir.join(subdir);
@@ -924,12 +930,19 @@ async fn submit_answer(
 
     let mode = req.mode;
     let mut sr = load_user_data(&state.db, &state.responses_dir, user_id, mode).await?;
-    let problem = Problem::new(req.a, req.b);
     let correct_answer = match mode {
         Mode::Addition | Mode::Addition2Digit => req.a as u32 + req.b as u32,
         // Subtraction: problem (a,b) displays as (a+b)-a=?, answer is b.
         Mode::Subtraction | Mode::Subtraction2Digit => req.b as u32,
-        Mode::TimesTables => problem.answer(),
+        Mode::TimesTables => Problem::new(req.a, req.b).answer(),
+    };
+    // For 2-digit modes, req.a/req.b are the full displayed values; derive the class problem.
+    let problem = match mode {
+        Mode::Addition2Digit | Mode::Subtraction2Digit => {
+            let overflow = (req.a as u32 + req.b as u32) >= 100;
+            Problem::new(req.a % 10, req.b % 10 + if overflow { 10 } else { 0 })
+        }
+        _ => Problem::new(req.a, req.b),
     };
     let correct = req.answer == correct_answer;
 

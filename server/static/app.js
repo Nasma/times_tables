@@ -138,13 +138,39 @@ function correctTime(ps) {
   return Math.min(MAX, avg / (correct.length / last5.length));
 }
 
+function is2DigitMode() {
+  return state.mode === 'addition_2digit' || state.mode === 'subtraction_2digit';
+}
+
+// Derive the class key from displayed a, b values for 2-digit modes.
+// Key encodes (units_a, units_b + overflow*10): e.g. "4x3" or "4x13".
+function classKey2D(a, b) {
+  const overflow = (a + b) >= 100;
+  return pkey(a % 10, b % 10 + (overflow ? 10 : 0));
+}
+
+// Given a class key's (units_a, b_enc), generate random tens digits
+// that produce an a+b with the correct overflow property.
+function generateDisplay2D(units_a, b_enc) {
+  const units_b = b_enc % 10;
+  const overflow = b_enc >= 10;
+  const carry = (units_a + units_b) >= 10 ? 1 : 0;
+  let tens_a = 1, tens_b = 1;
+  for (let i = 0; i < 200; i++) {
+    tens_a = Math.floor(Math.random() * 9) + 1; // 1..9
+    tens_b = Math.floor(Math.random() * 9) + 1;
+    if (overflow ? (tens_a + tens_b + carry) >= 10 : (tens_a + tens_b + carry) < 10) break;
+  }
+  return { a: tens_a * 10 + units_a, b: tens_b * 10 + units_b };
+}
+
 function problemRange() {
   if (state.mode === 'times_tables') return { min: 1, max: 12 };
-  if (state.mode === 'addition_2digit' || state.mode === 'subtraction_2digit') return { min: 11, max: 20 };
   return { min: 1, max: 10 };
 }
 
 function pickProblem(last) {
+  if (is2DigitMode()) return pickProblem2D(last);
   const { min, max } = problemRange();
   const entries = [];
   for (let a = min; a <= max; a++) {
@@ -178,8 +204,34 @@ function pickProblem(last) {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+function pickProblem2D(last) {
+  const lastKey = last ? classKey2D(last.a, last.b) : null;
+  const entries = Object.entries(state.problems).map(([key, ps]) => {
+    const last5 = ps.recentResponses.slice(-5);
+    const errorsInLast5 = last5.filter(r => !r.correct).length;
+    const recentCorrect = ps.recentResponses.slice().reverse().filter(r => r.correct).map(r => r.elapsedSecs);
+    const lastAskedAt = ps.recentResponses.length ? ps.recentResponses[ps.recentResponses.length - 1].answeredAtSecs : null;
+    return { key, errorsInLast5, estimatedTime: estimateTime(recentCorrect), lastAskedAt };
+  });
+  if (!entries.length) return generateDisplay2D(1, 1);
+  entries.sort((x, y) => (y.errorsInLast5 - x.errorsInLast5) || (y.estimatedTime - x.estimatedTime));
+  let candidates = entries.slice(0, 9).map(e => e.key);
+  const oldestKey = entries.slice().sort((x, y) => {
+    if (x.lastAskedAt === null) return -1;
+    if (y.lastAskedAt === null) return 1;
+    return x.lastAskedAt - y.lastAskedAt;
+  })[0].key;
+  if (!candidates.includes(oldestKey)) candidates.push(oldestKey);
+  let pool = candidates.length > 1 ? candidates.filter(k => k !== lastKey) : candidates;
+  if (!pool.length) pool = candidates;
+  const chosenKey = pool[Math.floor(Math.random() * pool.length)];
+  const [ua, bEnc] = chosenKey.split('x').map(Number);
+  return generateDisplay2D(ua, bEnc);
+}
+
 function recordAnswer(a, b, correct, elapsedSecs) {
-  const ps = state.problems[pkey(a, b)];
+  const key = is2DigitMode() ? classKey2D(a, b) : pkey(a, b);
+  const ps = state.problems[key];
   if (!ps) return;
   const isFastStreak = elapsedSecs < 2.0;
   const isFastTier   = elapsedSecs < 3.0;
@@ -335,17 +387,27 @@ function formatRaceTime(ms) {
     : `${secs}.${tenths}`;
 }
 
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 function buildRaceQueue() {
+  if (is2DigitMode()) {
+    return shuffle(Object.keys(state.problems).map(key => {
+      const [ua, bEnc] = key.split('x').map(Number);
+      return generateDisplay2D(ua, bEnc);
+    }));
+  }
   const { min, max } = problemRange();
   const problems = [];
   for (let a = min; a <= max; a++)
     for (let b = min; b <= max; b++)
       problems.push({ a, b });
-  for (let i = problems.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [problems[i], problems[j]] = [problems[j], problems[i]];
-  }
-  return problems;
+  return shuffle(problems);
 }
 
 function startRace() {
