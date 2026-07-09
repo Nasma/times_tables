@@ -42,9 +42,11 @@
   </table>
   <script>
     const MODES = [
-      { key: 'times_tables', label: 'Times Tables' },
-      { key: 'addition',     label: 'Addition' },
-      { key: 'subtraction',  label: 'Subtraction' },
+      { key: 'times_tables',      label: 'Times Tables' },
+      { key: 'addition',          label: 'Addition' },
+      { key: 'subtraction',       label: 'Subtraction' },
+      { key: 'addition_2digit',   label: '2-Digit Addition' },
+      { key: 'subtraction_2digit',label: '2-Digit Subtraction' },
     ];
 
     const params = new URLSearchParams(window.location.search);
@@ -61,8 +63,15 @@
     });
 
     function formatProblem(p, mode) {
-      if (mode === 'addition')     return `${p.a} + ${p.b}`;
-      if (mode === 'subtraction')  return `${p.a + p.b} − ${p.a}`;
+      if (mode === 'addition')    return `${p.a} + ${p.b}`;
+      if (mode === 'subtraction') return `${p.a + p.b} − ${p.a}`;
+      if (mode === 'addition_2digit' || mode === 'subtraction_2digit') {
+        const ub = p.b % 10;
+        const ov = p.b >= 10 ? '≥100' : '<100';
+        return mode === 'addition_2digit'
+          ? `_${p.a} + _${ub}  (${ov})`
+          : `_? − _${p.a} = _${ub}  (${ov})`;
+      }
       return `${p.a} × ${p.b}`;
     }
 
